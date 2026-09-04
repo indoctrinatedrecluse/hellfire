@@ -35,3 +35,4 @@ odin build src -out:bin\hellfire.exe -debug
 - **Release Left Click**: Launch orb into dungeon
 - **Keys `[1]` to `[5]`** or **Click bottom stones**: Switch active element (Fire, Water, Earth, Chaos, Light)
 - **Space / Enter**: Start game from title screen
+
