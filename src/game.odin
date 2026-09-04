@@ -105,13 +105,17 @@ game_update :: proc(dt: f32, mouse_pos: [2]f32, mouse_pressed, mouse_down, mouse
         if rl.IsKeyPressed(.FOUR)  do select_element(.CHAOS)
         if rl.IsKeyPressed(.FIVE)  do select_element(.LIGHT)
 
-        // Check if player clicked an elemental summoning stone at the bottom
+        // Check if player clicked a creature card in the bottom deck
         if mouse_pressed {
-            deck_y : f32 = 1170.0
+            card_w : f32 = 132.0
+            card_h : f32 = 176.0
+            base_y : f32 = f32(VIRTUAL_HEIGHT) - 184.0
             for elem in Element {
                 idx := int(elem)
-                slot_x := f32(100 + idx * 130)
-                if linalg.distance(mouse_pos, [2]f32{slot_x, deck_y}) < 36.0 {
+                cx := 10.0 + f32(idx) * 142.0
+                cy := (elem == game.selected_element) ? (base_y - 10.0) : base_y
+                card_rect := rl.Rectangle{cx, cy, card_w, card_h}
+                if rl.CheckCollisionPointRec(mouse_pos, card_rect) {
                     select_element(elem)
                     return
                 }
@@ -340,45 +344,49 @@ draw_hud :: proc(time: f32) {
     draw_elemental_wheel([2]f32{660.0, 120.0})
 
     // --- Bottom Elemental Summoning Deck ---
-    deck_tray := rl.Rectangle{0, f32(VIRTUAL_HEIGHT) - 170, f32(VIRTUAL_WIDTH), 170}
-    rl.DrawRectangleRec(deck_tray, rl.Color{18, 14, 26, 245})
+    tray_h : f32 = 215.0
+    deck_tray := rl.Rectangle{0, f32(VIRTUAL_HEIGHT) - tray_h, f32(VIRTUAL_WIDTH), tray_h}
+    rl.DrawRectangleRec(deck_tray, rl.Color{16, 12, 22, 245})
     rl.DrawRectangleLinesEx(deck_tray, 2, current_theme.wall_trim)
 
-    deck_title : cstring : "SUMMON ELEMENT [1-5]: Water > Fire > Earth > Light > Chaos > Water"
+    deck_title : cstring : "SUMMON DECK [1-5]: Water > Fire > Earth > Light > Chaos > Water"
     dt_w := rl.MeasureText(deck_title, 15)
-    rl.DrawText(deck_title, VIRTUAL_WIDTH / 2 - dt_w / 2, VIRTUAL_HEIGHT - 160, 15, current_theme.wall_trim)
+    rl.DrawText(deck_title, VIRTUAL_WIDTH / 2 - dt_w / 2, VIRTUAL_HEIGHT - 206, 15, current_theme.wall_trim)
 
-    deck_y : f32 = 1180.0
+    card_w : f32 = 132.0
+    card_h : f32 = 176.0
+    base_y : f32 = f32(VIRTUAL_HEIGHT) - 184.0
+
     for elem in Element {
         idx := int(elem)
-        slot_x := f32(100 + idx * 130)
+        cx := 10.0 + f32(idx) * 142.0
         is_selected := (elem == game.selected_element)
+        cy := is_selected ? (base_y - 12.0) : base_y
+        card_rect := rl.Rectangle{cx, cy, card_w, card_h}
 
-        slot_r : f32 = is_selected ? 36.0 : 28.0
-        c1 := element_primary_color(elem)
-        c2 := element_secondary_color(elem)
+        c_name, rarity := player_summon_name(elem)
 
-        if is_selected {
-            rl.DrawCircleLinesV([2]f32{slot_x, deck_y}, slot_r + 6.0, COLOR_TEXT_GOLD)
-            rl.DrawCircleLinesV([2]f32{slot_x, deck_y}, slot_r + 8.0, rl.GOLD)
-        }
+        draw_card(
+            rect       = card_rect,
+            elem       = elem,
+            name       = c_name,
+            rarity     = rarity,
+            hp_cur     = 100,
+            hp_max     = 100,
+            selected   = is_selected,
+            hurt_flash = false,
+            is_monster = false,
+            time       = time,
+        )
 
-        rl.DrawCircleV([2]f32{slot_x, deck_y}, slot_r, c1)
-        rl.DrawCircleV([2]f32{slot_x, deck_y}, slot_r * 0.6, c2)
-        rl.DrawCircleLinesV([2]f32{slot_x, deck_y}, slot_r, rl.Color{20, 15, 25, 255})
-
-        // Element Name & Hotkey
-        name_str := element_name(elem)
-        key_num := fmt.tprintf("[%d]", idx + 1)
-        k_cstr := strings.clone_to_cstring(key_num)
+        // Hotkey Badge above card
+        key_str := fmt.tprintf("[%d]", idx + 1)
+        k_cstr := strings.clone_to_cstring(key_str)
         defer delete(k_cstr)
-        kw := rl.MeasureText(k_cstr, 16)
-        rl.DrawText(k_cstr, i32(slot_x) - kw / 2, i32(deck_y + slot_r + 6), 16, rl.WHITE)
-
-        n_cstr := strings.clone_to_cstring(name_str)
-        defer delete(n_cstr)
-        nw := rl.MeasureText(n_cstr, 14)
-        rl.DrawText(n_cstr, i32(slot_x) - nw / 2, i32(deck_y - slot_r - 20), 14, c2)
+        kw := rl.MeasureText(k_cstr, 14)
+        rl.DrawRectangle(i32(cx + card_w * 0.5) - kw / 2 - 4, i32(cy - 16), kw + 8, 16, rl.Color{18, 14, 24, 230})
+        rl.DrawRectangleLines(i32(cx + card_w * 0.5) - kw / 2 - 4, i32(cy - 16), kw + 8, 16, is_selected ? COLOR_TEXT_GOLD : current_theme.wall_trim)
+        rl.DrawText(k_cstr, i32(cx + card_w * 0.5) - kw / 2, i32(cy - 15), 14, is_selected ? rl.GOLD : rl.WHITE)
     }
 
     // --- State-Specific Overlays ---
@@ -453,4 +461,15 @@ draw_elemental_wheel :: proc(center: [2]f32) {
         rl.DrawCircleV(pts[i], 6.0, c)
         rl.DrawCircleLinesV(pts[i], 6.0, rl.WHITE)
     }
+}
+
+player_summon_name :: proc(elem: Element) -> (string, int) {
+    switch elem {
+    case .FIRE:  return "Ignis Wyrm", 4
+    case .WATER: return "Leviathan", 4
+    case .EARTH: return "Gaea Titan", 4
+    case .CHAOS: return "Malphas", 5
+    case .LIGHT: return "Seraph", 5
+    }
+    return "Creature", 3
 }

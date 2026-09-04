@@ -13,11 +13,12 @@ create_block :: proc(norm_x: f32, depth_z: f32, elem: Element, hp: int) -> Dunge
     x := ARENA_CENTER_X + (norm_x * 2.0 - 1.0) * half_w
 
     scale := 0.75 + 0.4 * depth_z
-    base_size : f32 = 46.0 * scale
+    base_w : f32 = 44.0 * scale
+    base_h : f32 = 58.0 * scale // Sealed Tablet Card aspect ratio
 
     return Dungeon_Block{
         pos        = {x, y},
-        size       = {base_size, base_size},
+        size       = {base_w, base_h},
         depth_z    = depth_z,
         max_hp     = hp,
         current_hp = hp,
@@ -32,20 +33,20 @@ spawn_blocks_for_wave :: proc(wave_num: int) {
 
     switch wave_num % 3 {
     case 1:
-        // Wave 1: 2 ancient pillars flanking
+        // Wave 1: 2 ancient sealed relic cards
         blocks[0] = create_block(0.30, 0.55, .EARTH, 90)
         blocks[1] = create_block(0.70, 0.55, .FIRE, 90)
         block_count = 2
 
     case 2:
-        // Wave 2: 3 elemental barriers
+        // Wave 2: 3 elemental sealed tablets
         blocks[0] = create_block(0.20, 0.70, .WATER, 120)
         blocks[1] = create_block(0.50, 0.60, .CHAOS, 140)
         blocks[2] = create_block(0.80, 0.70, .LIGHT, 120)
         block_count = 3
 
     case 0:
-        // Wave 3: 4 guardian pillars
+        // Wave 3: 4 guardian relic cards
         blocks[0] = create_block(0.18, 0.45, .CHAOS, 150)
         blocks[1] = create_block(0.38, 0.45, .EARTH, 150)
         blocks[2] = create_block(0.62, 0.45, .FIRE, 150)
@@ -77,45 +78,55 @@ draw_blocks :: proc(time: f32) {
         elem_col1 := element_primary_color(b.element)
         elem_col2 := element_secondary_color(b.element)
 
-        // Drop shadow
-        shadow_rect := rl.Rectangle{pos.x - hw * 1.1, pos.y + hh * 0.7, b.size.x * 1.1, hh * 0.6}
-        rl.DrawEllipse(i32(pos.x), i32(pos.y + hh * 0.85), hw * 1.2, hh * 0.4, rl.Color{0, 0, 0, 120})
+        // Drop shadow on dungeon floor
+        rl.DrawEllipse(i32(pos.x), i32(pos.y + hh + 2.0), hw * 1.15, hh * 0.28, rl.Color{0, 0, 0, 130})
 
-        // Stone Block Body
-        block_fill := rl.Color{36, 30, 44, 255}
+        // Petrified Stone Card Frame
+        stone_fill := rl.Color{38, 32, 44, 255}
         if b.hurt_timer > 0.0 {
-            block_fill = rl.Color{240, 230, 230, 255} // Flash white
+            stone_fill = rl.Color{245, 235, 235, 255}
         }
 
-        rl.DrawRectangleRec(rect, block_fill)
-        rl.DrawRectangleLinesEx(rect, 2.5, elem_col1)
+        rl.DrawRectangleRounded(rect, 0.12, 4, stone_fill)
+        rl.DrawRectangleRoundedLinesEx(rect, 0.12, 4, 2.0, elem_col1)
 
-        // Inner beveled stone border
+        // Weathered Inner Tablet Border
         inner_rect := rl.Rectangle{rect.x + 3, rect.y + 3, rect.width - 6, rect.height - 6}
-        rl.DrawRectangleLinesEx(inner_rect, 1.5, COLOR_WALL_TRIM)
+        rl.DrawRectangleRoundedLinesEx(inner_rect, 0.10, 4, 1.2, COLOR_WALL_TRIM)
 
-        // Glowing elemental rune icon in the center
+        // Carved Ancient Rune Relic in the center
         rune_pulse := math.sin(time * 3.5 + b.depth_z * 2.0) * 0.15 + 0.85
-        rl.DrawCircleV(pos, hw * 0.38 * rune_pulse, elem_col2)
-        rl.DrawCircleV(pos, hw * 0.20 * rune_pulse, rl.WHITE)
+        gem_r := hw * 0.38 * rune_pulse
+        rl.DrawCircleV(pos, gem_r + 2, COLOR_WALL_TRIM)
+        rl.DrawCircleV(pos, gem_r, elem_col1)
+        rl.DrawCircleV(pos, gem_r * 0.5, elem_col2)
+        rl.DrawCircleV(pos, gem_r * 0.2, rl.WHITE)
 
-        // Cracks based on HP lost
+        // Ancient Carved Sigil Cross
+        rl.DrawLineV([2]f32{pos.x - hw * 0.6, pos.y}, [2]f32{pos.x - gem_r - 2, pos.y}, COLOR_WALL_TRIM)
+        rl.DrawLineV([2]f32{pos.x + gem_r + 2, pos.y}, [2]f32{pos.x + hw * 0.6, pos.y}, COLOR_WALL_TRIM)
+        rl.DrawLineV([2]f32{pos.x, pos.y - hh * 0.65}, [2]f32{pos.x, pos.y - gem_r - 2}, COLOR_WALL_TRIM)
+        rl.DrawLineV([2]f32{pos.x, pos.y + gem_r + 2}, [2]f32{pos.x, pos.y + hh * 0.65}, COLOR_WALL_TRIM)
+
+        // Progressive fracture cracks as HP depletes
         hp_pct := f32(b.current_hp) / f32(b.max_hp)
-        if hp_pct < 0.7 {
-            rl.DrawLineEx([2]f32{pos.x - hw * 0.5, pos.y - hh * 0.4}, [2]f32{pos.x - 2, pos.y}, 2, rl.BLACK)
+        if hp_pct < 0.75 {
+            rl.DrawLineEx([2]f32{pos.x - hw * 0.7, pos.y - hh * 0.5}, [2]f32{pos.x - hw * 0.1, pos.y - hh * 0.1}, 1.5, rl.BLACK)
         }
-        if hp_pct < 0.4 {
-            rl.DrawLineEx([2]f32{pos.x, pos.y}, [2]f32{pos.x + hw * 0.6, pos.y + hh * 0.5}, 2, rl.BLACK)
+        if hp_pct < 0.45 {
+            rl.DrawLineEx([2]f32{pos.x + hw * 0.1, pos.y + hh * 0.1}, [2]f32{pos.x + hw * 0.7, pos.y + hh * 0.6}, 1.5, rl.BLACK)
+        }
+        if hp_pct < 0.25 {
+            rl.DrawLineEx([2]f32{pos.x - hw * 0.5, pos.y + hh * 0.6}, [2]f32{pos.x, pos.y}, 2.0, rl.BLACK)
         }
 
-        // Tiny HP bar
-        bar_w := b.size.x
-        bar_h : f32 = 5.0
+        // Mini HP Bar at bottom of tablet
+        bar_w := b.size.x - 6.0
+        bar_h : f32 = 3.5
         bar_x := pos.x - bar_w * 0.5
-        bar_y := pos.y - hh - 8.0
+        bar_y := pos.y + hh - 6.0
 
-        rl.DrawRectangle(i32(bar_x), i32(bar_y), i32(bar_w), i32(bar_h), rl.Color{15, 12, 20, 200})
+        rl.DrawRectangle(i32(bar_x), i32(bar_y), i32(bar_w), i32(bar_h), rl.Color{12, 10, 16, 200})
         rl.DrawRectangle(i32(bar_x), i32(bar_y), i32(bar_w * hp_pct), i32(bar_h), elem_col1)
     }
 }
-

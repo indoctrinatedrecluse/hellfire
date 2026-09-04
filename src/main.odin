@@ -18,6 +18,9 @@ main :: proc() {
     defer rl.UnloadRenderTexture(target)
     rl.SetTextureFilter(target.texture, .BILINEAR)
 
+    init_card_textures()
+    defer unload_card_textures()
+
     game_init()
 
     for !rl.WindowShouldClose() {
