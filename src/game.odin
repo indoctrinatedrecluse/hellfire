@@ -28,6 +28,7 @@ Game :: struct {
 
     // Transitions
     wave_clear_timer:  f32,
+    banner_timer:      f32,
 }
 
 game: Game
@@ -39,9 +40,12 @@ game_init :: proc() {
     game.total_turns = 0
     game.game_time = 0.0
     game.selected_element = .FIRE
+    game.banner_timer = 2.5
 
+    set_random_environment()
     reset_orb(&game.orb, game.selected_element)
     spawn_current_wave()
+    spawn_blocks_for_wave(game.current_wave)
 }
 
 reset_orb :: proc(orb: ^Orb, elem: Element) {
@@ -67,19 +71,30 @@ spawn_current_wave :: proc() {
 game_update :: proc(dt: f32, mouse_pos: [2]f32, mouse_pressed, mouse_down, mouse_released: bool) {
     game.game_time += dt
 
+    if game.banner_timer > 0.0 {
+        game.banner_timer -= dt
+    }
+
     // Screen shake update
     _ = update_screen_shake(dt)
 
-    // Particles and floating text update
+    // Particles, shockwaves, ambient environment and combo popups
     update_particles(dt)
+    update_ambient_particles(dt, current_theme.ambient_color1, current_theme.ambient_color2)
+    update_shockwaves(dt)
+    update_combo_popups(dt)
     update_damage_numbers(dt)
+    update_blocks(dt)
 
     switch game.state {
     case .TITLE:
         if mouse_released || rl.IsKeyPressed(.SPACE) || rl.IsKeyPressed(.ENTER) {
             game.state = .BATTLE_AIMING
             reset_orb(&game.orb, game.selected_element)
+            set_random_environment()
             spawn_current_wave()
+            spawn_blocks_for_wave(game.current_wave)
+            game.banner_timer = 2.5
         }
 
     case .BATTLE_AIMING:
@@ -95,7 +110,7 @@ game_update :: proc(dt: f32, mouse_pos: [2]f32, mouse_pressed, mouse_down, mouse
             deck_y : f32 = 1170.0
             for elem in Element {
                 idx := int(elem)
-                slot_x := f32(110 + idx * 125)
+                slot_x := f32(100 + idx * 130)
                 if linalg.distance(mouse_pos, [2]f32{slot_x, deck_y}) < 36.0 {
                     select_element(elem)
                     return
@@ -137,6 +152,7 @@ game_update :: proc(dt: f32, mouse_pos: [2]f32, mouse_pressed, mouse_down, mouse
 
                     // Launch sparks & screen thump
                     emit_sparks(LAUNCH_PAD_POS, element_primary_color(game.orb.element), 18, 300.0)
+                    add_shockwave(LAUNCH_PAD_POS, 45.0, element_primary_color(game.orb.element))
                     add_screen_shake(3.0, 0.1)
                 }
             }
@@ -176,9 +192,12 @@ game_update :: proc(dt: f32, mouse_pos: [2]f32, mouse_pressed, mouse_down, mouse
         game.wave_clear_timer -= dt
         if game.wave_clear_timer <= 0.0 || (mouse_released && game.wave_clear_timer < 1.4) {
             game.current_wave += 1
+            set_random_environment()
             spawn_current_wave()
+            spawn_blocks_for_wave(game.current_wave)
             reset_orb(&game.orb, game.selected_element)
             game.state = .BATTLE_AIMING
+            game.banner_timer = 2.5
         }
 
     case .GAME_OVER:
@@ -192,22 +211,26 @@ select_element :: proc(elem: Element) {
     game.selected_element = elem
     game.orb.element = elem
     emit_sparks(LAUNCH_PAD_POS, element_secondary_color(elem), 14, 200.0)
+    add_shockwave(LAUNCH_PAD_POS, 32.0, element_secondary_color(elem), 0.25)
 }
 
 game_draw :: proc() {
     time := game.game_time
 
-    // 2.5D Perspective Dungeon Arena & Environment
+    // 2.5D Perspective Dungeon Arena & Environment Theme
     draw_arena(time)
+
+    // Destructible Runic Blocks on Dungeon Floor
+    draw_blocks(time)
 
     // Enemies on Dungeon Floor
     for i in 0..<game.enemy_count {
         draw_enemy(game.enemies[i], time)
     }
 
-    // Particles & Floating Damage Numbers
+    // Shockwaves & Particles
+    draw_shockwaves()
     draw_particles()
-    draw_damage_numbers()
 
     // Orb & Trajectory Drawing
     if game.state == .BATTLE_AIMING {
@@ -215,17 +238,14 @@ game_draw :: proc() {
             pull := LAUNCH_PAD_POS - game.aim_pos
             pull_len := math.min(linalg.length(pull), MAX_PULL_DISTANCE)
             if pull_len > 15.0 {
-                // Aim prediction line
                 draw_aim_guide(game.aim_preview, game.orb.element)
 
-                // Slingshot elastic band
                 col := element_primary_color(game.orb.element)
                 rl.DrawLineEx(LAUNCH_PAD_POS, game.aim_pos, 4.0, col)
                 rl.DrawCircleV(game.aim_pos, game.orb.radius, col)
                 rl.DrawCircleV(game.aim_pos, game.orb.radius * 0.5, rl.WHITE)
             }
         } else {
-            // Orb sitting ready on summoning pad
             draw_ready_orb(LAUNCH_PAD_POS, game.orb.element, time)
         }
     } else if game.state == .BATTLE_FLYING {
@@ -238,11 +258,15 @@ game_draw :: proc() {
             rl.DrawCircleV(game.orb.trail[j], trail_r, c)
         }
 
-        // Draw In-flight Orb
+        // In-flight Orb
         rl.DrawCircleV(game.orb.pos, game.orb.radius + 3.0, element_secondary_color(game.orb.element))
         rl.DrawCircleV(game.orb.pos, game.orb.radius, element_primary_color(game.orb.element))
         rl.DrawCircleV(game.orb.pos, game.orb.radius * 0.45, rl.WHITE)
     }
+
+    // Damage numbers and Flashy Combo Popups
+    draw_damage_numbers()
+    draw_combo_popups()
 
     // HUD / UI Overlay
     draw_hud(time)
@@ -261,40 +285,68 @@ draw_ready_orb :: proc(pos: [2]f32, elem: Element, time: f32) {
 }
 
 draw_hud :: proc(time: f32) {
-    // --- Top Bar (Dungeon Depth, Score, Combo) ---
-    top_bar_rect := rl.Rectangle{0, 0, f32(VIRTUAL_WIDTH), 70}
+    // --- Top Bar (Dungeon Depth, Environment Name, Score, Combo) ---
+    top_bar_rect := rl.Rectangle{0, 0, f32(VIRTUAL_WIDTH), 74}
     rl.DrawRectangleRec(top_bar_rect, rl.Color{16, 12, 22, 240})
-    rl.DrawRectangleLinesEx(top_bar_rect, 2, COLOR_WALL_TRIM)
+    rl.DrawRectangleLinesEx(top_bar_rect, 2, current_theme.wall_trim)
 
-    // Floor / Chamber Banner
+    // Floor / Chamber Banner & Environment Name
     floor_text := rl.TextFormat("CHAMBER B%d", game.current_wave)
-    rl.DrawText(floor_text, 30, 22, 26, COLOR_TEXT_GOLD)
+    rl.DrawText(floor_text, 24, 16, 24, COLOR_TEXT_GOLD)
+
+    env_cstr := strings.clone_to_cstring(current_theme.name)
+    defer delete(env_cstr)
+    rl.DrawText(env_cstr, 24, 44, 15, current_theme.ambient_color1)
 
     // Score
     score_text := rl.TextFormat("SOULS: %d", game.score)
-    rl.DrawText(score_text, 260, 24, 22, rl.RAYWHITE)
+    rl.DrawText(score_text, 270, 24, 22, rl.RAYWHITE)
 
     // Turns
     turn_text := rl.TextFormat("FLICKS: %d", game.total_turns)
     rl.DrawText(turn_text, 540, 24, 20, rl.LIGHTGRAY)
 
-    // Combo Counter (Shows during flight / combo chaining)
+    // Active in-flight combo badge
     if game.orb.combo > 1 {
-        combo_pulse := math.sin(time * 10.0) * 0.15 + 1.0
-        combo_text := rl.TextFormat("%dx COMBO!", game.orb.combo)
-        combo_w := rl.MeasureText(combo_text, 34)
-        rl.DrawText(combo_text, VIRTUAL_WIDTH / 2 - combo_w / 2 + 2, 90 + 2, 34, rl.BLACK)
-        rl.DrawText(combo_text, VIRTUAL_WIDTH / 2 - combo_w / 2, 90, 34, rl.GOLD)
+        combo_mult := combo_multiplier_for_count(game.orb.combo)
+        badge_text := rl.TextFormat("%dx COMBO (+%.0f%%)", game.orb.combo, (combo_mult - 1.0) * 100.0)
+        badge_w := rl.MeasureText(badge_text, 22)
+
+        badge_x := VIRTUAL_WIDTH / 2 - badge_w / 2
+        badge_y : i32 = 84
+        rl.DrawRectangle(badge_x - 12, badge_y - 4, badge_w + 24, 30, rl.Color{20, 15, 28, 220})
+        rl.DrawRectangleLines(badge_x - 12, badge_y - 4, badge_w + 24, 30, rl.GOLD)
+        rl.DrawText(badge_text, badge_x, badge_y + 1, 22, rl.GOLD)
     }
+
+    // Chamber Entrance Banner Notification
+    if game.banner_timer > 0.0 && game.state != .TITLE {
+        banner_alpha := math.clamp(game.banner_timer / 0.5, 0.0, 1.0)
+        c := current_theme.title_name
+        tw := rl.MeasureText(c, 32)
+        b_x := VIRTUAL_WIDTH / 2 - tw / 2
+        b_y : i32 = 120
+
+        bg_c := rl.Color{15, 10, 22, u8(banner_alpha * 220.0)}
+        rl.DrawRectangle(b_x - 20, b_y - 6, tw + 40, 44, bg_c)
+        rl.DrawRectangleLines(b_x - 20, b_y - 6, tw + 40, 44, current_theme.wall_trim)
+
+        txt_c := current_theme.ambient_color1
+        txt_c.a = u8(banner_alpha * 255.0)
+        rl.DrawText(c, b_x, b_y, 32, txt_c)
+    }
+
+    // --- Elemental Affinity Quick Reference Mini-Wheel ---
+    draw_elemental_wheel([2]f32{660.0, 120.0})
 
     // --- Bottom Elemental Summoning Deck ---
     deck_tray := rl.Rectangle{0, f32(VIRTUAL_HEIGHT) - 170, f32(VIRTUAL_WIDTH), 170}
     rl.DrawRectangleRec(deck_tray, rl.Color{18, 14, 26, 245})
-    rl.DrawRectangleLinesEx(deck_tray, 2, COLOR_WALL_TRIM)
+    rl.DrawRectangleLinesEx(deck_tray, 2, current_theme.wall_trim)
 
-    deck_title : cstring : "SELECT SUMMON ORB [1 - 5]"
-    dt_w := rl.MeasureText(deck_title, 16)
-    rl.DrawText(deck_title, VIRTUAL_WIDTH / 2 - dt_w / 2, VIRTUAL_HEIGHT - 160, 16, COLOR_WALL_TRIM)
+    deck_title : cstring : "SUMMON ELEMENT [1-5]: Water > Fire > Earth > Light > Chaos > Water"
+    dt_w := rl.MeasureText(deck_title, 15)
+    rl.DrawText(deck_title, VIRTUAL_WIDTH / 2 - dt_w / 2, VIRTUAL_HEIGHT - 160, 15, current_theme.wall_trim)
 
     deck_y : f32 = 1180.0
     for elem in Element {
@@ -306,7 +358,6 @@ draw_hud :: proc(time: f32) {
         c1 := element_primary_color(elem)
         c2 := element_secondary_color(elem)
 
-        // Selection ring
         if is_selected {
             rl.DrawCircleLinesV([2]f32{slot_x, deck_y}, slot_r + 6.0, COLOR_TEXT_GOLD)
             rl.DrawCircleLinesV([2]f32{slot_x, deck_y}, slot_r + 8.0, rl.GOLD)
@@ -332,7 +383,7 @@ draw_hud :: proc(time: f32) {
 
     // --- State-Specific Overlays ---
     if game.state == .TITLE {
-        rl.DrawRectangle(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT, rl.Color{0, 0, 0, 190})
+        rl.DrawRectangle(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT, rl.Color{0, 0, 0, 195})
 
         title_text : cstring : "HELLFIRE"
         sub_text   : cstring : "THE DUNGEON SUMMONING"
@@ -351,9 +402,9 @@ draw_hud :: proc(time: f32) {
         prompt_col := rl.Color{255, 220, 140, u8(pulse * 255)}
         rl.DrawText(prompt, VIRTUAL_WIDTH / 2 - pw / 2, 700, 20, prompt_col)
 
-        guide_text : cstring : "Drag & flick elemental orbs to strike monster weak points!"
-        gw := rl.MeasureText(guide_text, 18)
-        rl.DrawText(guide_text, VIRTUAL_WIDTH / 2 - gw / 2, 760, 18, rl.LIGHTGRAY)
+        guide_text : cstring : "Flick elemental orbs to chain combos & strike monster weak points!"
+        gw := rl.MeasureText(guide_text, 17)
+        rl.DrawText(guide_text, VIRTUAL_WIDTH / 2 - gw / 2, 760, 17, rl.LIGHTGRAY)
     } else if game.state == .WAVE_CLEARED {
         banner_rect := rl.Rectangle{0, 480, f32(VIRTUAL_WIDTH), 140}
         rl.DrawRectangleRec(banner_rect, rl.Color{20, 16, 28, 230})
@@ -370,5 +421,36 @@ draw_hud :: proc(time: f32) {
         hint : cstring : "Pull back on orb to aim & release to strike!"
         hw := rl.MeasureText(hint, 18)
         rl.DrawText(hint, VIRTUAL_WIDTH / 2 - hw / 2, 940, 18, rl.Color{230, 210, 170, 200})
+    }
+}
+
+// Draw compact elemental wheel pentagram guide in the top corner
+draw_elemental_wheel :: proc(center: [2]f32) {
+    radius : f32 = 32.0
+
+    // Background circle
+    rl.DrawCircleV(center, radius + 8, rl.Color{16, 12, 24, 200})
+    rl.DrawCircleLinesV(center, radius + 8, current_theme.wall_trim)
+
+    // Mini elemental nodes in pentagram layout: Water -> Fire -> Earth -> Light -> Chaos -> Water
+    elements := [5]Element{.WATER, .FIRE, .EARTH, .LIGHT, .CHAOS}
+    pts: [5][2]f32
+    for i in 0..<5 {
+        ang := -math.PI * 0.5 + (f32(i) / 5.0) * math.TAU
+        pts[i] = center + [2]f32{math.cos(ang) * radius, math.sin(ang) * radius}
+    }
+
+    // Connect nodes in circle
+    for i in 0..<5 {
+        next_i := (i + 1) % 5
+        rl.DrawLineV(pts[i], pts[next_i], rl.Color{180, 160, 120, 160})
+    }
+
+    // Draw element dots
+    for i in 0..<5 {
+        elem := elements[i]
+        c := element_primary_color(elem)
+        rl.DrawCircleV(pts[i], 6.0, c)
+        rl.DrawCircleLinesV(pts[i], 6.0, rl.WHITE)
     }
 }

@@ -26,7 +26,6 @@ update_orb_physics :: proc(orb: ^Orb, enemies: ^[MAX_ENEMIES]Enemy, enemy_count:
     orb.trail_timer += dt
     if orb.trail_timer >= 0.015 {
         orb.trail_timer = 0.0
-        // Shift trail points back
         for j := MAX_TRAIL_POINTS - 1; j > 0; j -= 1 {
             orb.trail[j] = orb.trail[j - 1]
         }
@@ -61,14 +60,10 @@ update_orb_physics :: proc(orb: ^Orb, enemies: ^[MAX_ENEMIES]Enemy, enemy_count:
     for wall in walls {
         d, closest := dist_to_segment(orb.pos, wall.p1, wall.p2)
         if d < orb.radius {
-            // Check if moving into the wall
             vel_dot_n := linalg.dot(orb.vel, wall.normal)
             if vel_dot_n < 0.0 {
-                // Penetration resolution
                 pen := orb.radius - d
                 orb.pos += wall.normal * pen
-
-                // Reflect velocity
                 orb.vel = (orb.vel - 2.0 * vel_dot_n * wall.normal) * BALL_RESTITUTION
 
                 orb.bounces += 1
@@ -77,6 +72,69 @@ update_orb_physics :: proc(orb: ^Orb, enemies: ^[MAX_ENEMIES]Enemy, enemy_count:
                 spark_col := element_secondary_color(orb.element)
                 emit_sparks(closest, spark_col, 10, 240.0)
                 add_screen_shake(2.2, 0.07)
+            }
+        }
+    }
+
+    // --- Dungeon Blocks Collisions ---
+    for i in 0..<block_count {
+        b := &blocks[i]
+        if !b.active do continue
+
+        hw := b.size.x * 0.5
+        hh := b.size.y * 0.5
+
+        cx := math.clamp(orb.pos.x, b.pos.x - hw, b.pos.x + hw)
+        cy := math.clamp(orb.pos.y, b.pos.y - hh, b.pos.y + hh)
+        dist := linalg.distance(orb.pos, [2]f32{cx, cy})
+
+        if dist < orb.radius {
+            collision_normal: [2]f32
+            if dist > 0.001 {
+                collision_normal = linalg.normalize0(orb.pos - [2]f32{cx, cy})
+            } else {
+                collision_normal = [2]f32{0.0, 1.0}
+            }
+
+            vel_dot_norm := linalg.dot(orb.vel, -collision_normal)
+            if vel_dot_norm > 0.0 {
+                // Separate
+                orb.pos = [2]f32{cx, cy} + collision_normal * (orb.radius + 1.0)
+                orb.vel = linalg.reflect(orb.vel, -collision_normal) * BALL_RESTITUTION
+
+                // Element affinity & Combo calculations
+                elem_mult, effect, label := element_interaction(orb.element, b.element)
+                orb.bounces += 1
+                orb.combo += 1
+                combo_mult := combo_multiplier_for_count(orb.combo)
+
+                base_dmg : f32 = 65.0
+                damage := int(base_dmg * elem_mult * combo_mult)
+
+                b.current_hp -= damage
+                b.hurt_timer = 0.12
+                game.score += 25 * orb.combo
+
+                // Trigger flashy combo popup when hitting 2+ blocks/targets
+                if orb.combo >= 2 {
+                    combo_col := element_secondary_color(orb.element)
+                    add_combo_popup(b.pos, orb.combo, combo_mult, combo_col)
+                }
+
+                dmg_col := (effect == .RESISTED) ? rl.LIGHTGRAY : element_secondary_color(orb.element)
+                add_damage_number([2]f32{cx, cy}, damage, false, dmg_col, label)
+
+                if b.current_hp <= 0 {
+                    b.current_hp = 0
+                    b.active = false
+                    emit_burst(b.pos, element_primary_color(b.element), rl.WHITE, 35)
+                    add_shockwave(b.pos, 52.0, element_primary_color(b.element))
+                    add_screen_shake(5.5, 0.16)
+                    game.score += 150
+                } else {
+                    emit_sparks([2]f32{cx, cy}, element_secondary_color(orb.element), 8, 220.0)
+                    add_screen_shake(2.8, 0.09)
+                }
             }
         }
     }
@@ -101,30 +159,39 @@ update_orb_physics :: proc(orb: ^Orb, enemies: ^[MAX_ENEMIES]Enemy, enemy_count:
                 dist_weak := linalg.distance(orb.pos, weak_world_pos)
                 is_crit := dist_weak < (orb.radius + e.weak_radius)
 
-                // Damage math
-                base_dmg : f32 = 75.0
-                elem_mult := element_multiplier(orb.element, e.element)
-                combo_mult : f32 = 1.0 + f32(orb.combo) * 0.20
+                // Detailed elemental advantage & combo
+                elem_mult, effect, label := element_interaction(orb.element, e.element)
+                orb.bounces += 1
+                orb.combo += 1
+                combo_mult := combo_multiplier_for_count(orb.combo)
                 crit_mult : f32 = is_crit ? 2.2 : 1.0
 
+                base_dmg : f32 = 75.0
                 total_damage := int(base_dmg * elem_mult * combo_mult * crit_mult)
 
                 e.current_hp -= total_damage
                 e.hurt_timer = 0.14
-                orb.bounces += 1
-                orb.combo += 1
+                game.score += total_damage
 
-                damage_col := is_crit ? rl.GOLD : element_secondary_color(orb.element)
-                add_damage_number(is_crit ? weak_world_pos : orb.pos, total_damage, is_crit, damage_col)
+                // Trigger flashy combo popup when hitting 2+ targets
+                if orb.combo >= 2 {
+                    popup_col := is_crit ? rl.GOLD : element_secondary_color(orb.element)
+                    add_combo_popup(e.pos, orb.combo, combo_mult, popup_col)
+                }
+
+                damage_col := is_crit ? rl.GOLD : ((effect == .RESISTED) ? rl.LIGHTGRAY : element_secondary_color(orb.element))
+                add_damage_number(is_crit ? weak_world_pos : orb.pos, total_damage, is_crit, damage_col, label)
 
                 if e.current_hp <= 0 {
                     e.current_hp = 0
                     e.alive = false
-                    emit_burst(e.pos, element_primary_color(e.element), rl.WHITE, 40)
-                    add_screen_shake(8.0, 0.22)
+                    emit_burst(e.pos, element_primary_color(e.element), rl.WHITE, 45)
+                    add_shockwave(e.pos, 68.0, element_primary_color(e.element))
+                    add_screen_shake(8.5, 0.24)
+                    game.score += 300 * game.current_wave
                 } else {
                     emit_sparks(orb.pos, element_primary_color(e.element), is_crit ? 16 : 8, is_crit ? 340.0 : 200.0)
-                    add_screen_shake(is_crit ? 5.5 : 2.8, 0.12)
+                    add_screen_shake(is_crit ? 5.5 : 3.0, 0.12)
                 }
             }
         }
@@ -156,9 +223,7 @@ calculate_trajectory :: proc(origin: [2]f32, dir: [2]f32, max_len: f32) -> Traje
     hit_normal := [2]f32{}
     hit_found := false
 
-    // Ray vs Wall Segments
     for wall in walls {
-        // Line-line intersection between ray (origin + dir * t) and wall segment (p1 -> p2)
         v1 := origin - wall.p1
         v2 := wall.p2 - wall.p1
         v3 := [2]f32{-dir.y, dir.x}
@@ -193,11 +258,9 @@ draw_aim_guide :: proc(preview: Trajectory_Preview, elem: Element) {
     col := element_secondary_color(elem)
     col.a = 210
 
-    // Direct trajectory line
     rl.DrawLineEx(preview.start, preview.bounce_pt, 2.5, col)
     rl.DrawCircleV(preview.bounce_pt, 5.0, col)
 
-    // Reflected trajectory line
     if preview.hit_wall {
         reflect_col := col
         reflect_col.a = 140
@@ -205,4 +268,3 @@ draw_aim_guide :: proc(preview: Trajectory_Preview, elem: Element) {
         rl.DrawCircleV(preview.reflect_end, 4.0, reflect_col)
     }
 }
-
