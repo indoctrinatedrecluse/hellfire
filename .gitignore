@@ -1,0 +1,10 @@
+# Binaries and build outputs
+bin/
+*.exe
+*.pdb
+*.obj
+*.ilk
+
+# System files
+.DS_Store
+Thumbs.db
