@@ -1,8 +1,6 @@
 package hellfire
 
 import "core:math"
-import "core:math/linalg"
-import "core:strings"
 import rl "vendor:raylib"
 
 MAX_ENEMIES :: 6

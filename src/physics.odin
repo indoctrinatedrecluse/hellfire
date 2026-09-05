@@ -102,14 +102,17 @@ update_orb_physics :: proc(orb: ^Orb, enemies: ^[MAX_ENEMIES]Enemy, enemy_count:
                 orb.pos = [2]f32{cx, cy} + collision_normal * (orb.radius + 1.0)
                 orb.vel = linalg.reflect(orb.vel, -collision_normal) * BALL_RESTITUTION
 
-                // Element affinity & Combo calculations
+                // Element affinity, evolution power & combo calculations
                 elem_mult, effect, label := element_interaction(orb.element, b.element)
                 orb.bounces += 1
                 orb.combo += 1
                 combo_mult := combo_multiplier_for_count(orb.combo)
 
+                card_stage := game.card_stages[int(orb.element)]
+                evo_mult := 1.0 + f32(card_stage) * 1.0 // 1x, 2x, 3x, 4x, 5x
+
                 base_dmg : f32 = 65.0
-                damage := int(base_dmg * elem_mult * combo_mult)
+                damage := int(base_dmg * evo_mult * elem_mult * combo_mult)
 
                 b.current_hp -= damage
                 b.hurt_timer = 0.12
@@ -159,15 +162,18 @@ update_orb_physics :: proc(orb: ^Orb, enemies: ^[MAX_ENEMIES]Enemy, enemy_count:
                 dist_weak := linalg.distance(orb.pos, weak_world_pos)
                 is_crit := dist_weak < (orb.radius + e.weak_radius)
 
-                // Detailed elemental advantage & combo
+                // Detailed elemental advantage, evolution tier, and combo
                 elem_mult, effect, label := element_interaction(orb.element, e.element)
                 orb.bounces += 1
                 orb.combo += 1
                 combo_mult := combo_multiplier_for_count(orb.combo)
                 crit_mult : f32 = is_crit ? 2.2 : 1.0
 
+                card_stage := game.card_stages[int(orb.element)]
+                evo_mult := 1.0 + f32(card_stage) * 1.0 // 1x, 2x, 3x, 4x, 5x
+
                 base_dmg : f32 = 75.0
-                total_damage := int(base_dmg * elem_mult * combo_mult * crit_mult)
+                total_damage := int(base_dmg * evo_mult * elem_mult * combo_mult * crit_mult)
 
                 e.current_hp -= total_damage
                 e.hurt_timer = 0.14

@@ -29,6 +29,9 @@ Game :: struct {
     // Transitions
     wave_clear_timer:  f32,
     banner_timer:      f32,
+
+    // Evolution Stages (0 to 4 for each element)
+    card_stages:       [5]int,
 }
 
 game: Game
@@ -41,6 +44,11 @@ game_init :: proc() {
     game.game_time = 0.0
     game.selected_element = .FIRE
     game.banner_timer = 2.5
+
+    for i in 0..<5 {
+        game.card_stages[i] = 0
+    }
+    init_evolution_menu()
 
     set_random_environment()
     reset_orb(&game.orb, game.selected_element)
@@ -104,6 +112,21 @@ game_update :: proc(dt: f32, mouse_pos: [2]f32, mouse_pressed, mouse_down, mouse
         if rl.IsKeyPressed(.THREE) do select_element(.EARTH)
         if rl.IsKeyPressed(.FOUR)  do select_element(.CHAOS)
         if rl.IsKeyPressed(.FIVE)  do select_element(.LIGHT)
+
+        // Open Evolution Altar Menu with [E]
+        if rl.IsKeyPressed(.E) {
+            game.state = .EVOLUTION_MENU
+            evo_menu.selected_element = game.selected_element
+            return
+        }
+
+        // Check if player clicked the EVOLVE button on the battle HUD
+        btn_evo_hud := rl.Rectangle{f32(VIRTUAL_WIDTH) - 170.0, f32(VIRTUAL_HEIGHT) - 262.0, 150.0, 38.0}
+        if mouse_pressed && rl.CheckCollisionPointRec(mouse_pos, btn_evo_hud) {
+            game.state = .EVOLUTION_MENU
+            evo_menu.selected_element = game.selected_element
+            return
+        }
 
         // Check if player clicked a creature card in the bottom deck
         if mouse_pressed {
@@ -208,6 +231,9 @@ game_update :: proc(dt: f32, mouse_pos: [2]f32, mouse_pressed, mouse_down, mouse
         if mouse_released {
             game_init()
         }
+
+    case .EVOLUTION_MENU:
+        update_evolution_menu(dt, mouse_pos, mouse_pressed)
     }
 }
 
@@ -220,6 +246,11 @@ select_element :: proc(elem: Element) {
 
 game_draw :: proc() {
     time := game.game_time
+
+    if game.state == .EVOLUTION_MENU {
+        draw_evolution_menu(time)
+        return
+    }
 
     // 2.5D Perspective Dungeon Arena & Environment Theme
     draw_arena(time)
@@ -357,6 +388,14 @@ draw_hud :: proc(time: f32) {
     card_h : f32 = 176.0
     base_y : f32 = f32(VIRTUAL_HEIGHT) - 184.0
 
+    // EVOLVE Sanctuary Button on Battle HUD
+    btn_evo_rect := rl.Rectangle{f32(VIRTUAL_WIDTH) - 170.0, f32(VIRTUAL_HEIGHT) - 262.0, 150.0, 38.0}
+    rl.DrawRectangleRounded(btn_evo_rect, 0.25, 4, rl.Color{32, 22, 44, 230})
+    rl.DrawRectangleRoundedLinesEx(btn_evo_rect, 0.25, 4, 2.0, COLOR_TEXT_GOLD)
+    evo_btn_text : cstring : "EVOLVE [E] >>>"
+    ebw := rl.MeasureText(evo_btn_text, 16)
+    rl.DrawText(evo_btn_text, i32(btn_evo_rect.x + btn_evo_rect.width * 0.5) - ebw / 2, i32(btn_evo_rect.y + 11), 16, rl.GOLD)
+
     for elem in Element {
         idx := int(elem)
         cx := 10.0 + f32(idx) * 142.0
@@ -364,29 +403,31 @@ draw_hud :: proc(time: f32) {
         cy := is_selected ? (base_y - 12.0) : base_y
         card_rect := rl.Rectangle{cx, cy, card_w, card_h}
 
-        c_name, rarity := player_summon_name(elem)
+        c_stage := game.card_stages[idx]
+        c_data := get_card_stage_data(elem, c_stage)
 
         draw_card(
             rect       = card_rect,
             elem       = elem,
-            name       = c_name,
-            rarity     = rarity,
+            name       = c_data.name,
+            rarity     = c_data.rarity,
             hp_cur     = 100,
             hp_max     = 100,
             selected   = is_selected,
             hurt_flash = false,
             is_monster = false,
             time       = time,
+            stage      = c_stage,
         )
 
-        // Hotkey Badge above card
-        key_str := fmt.tprintf("[%d]", idx + 1)
+        // Hotkey & Multiplier Badge above card
+        key_str := fmt.tprintf("[%d]  %.0fx", idx + 1, c_data.power_mult)
         k_cstr := strings.clone_to_cstring(key_str)
         defer delete(k_cstr)
-        kw := rl.MeasureText(k_cstr, 14)
+        kw := rl.MeasureText(k_cstr, 13)
         rl.DrawRectangle(i32(cx + card_w * 0.5) - kw / 2 - 4, i32(cy - 16), kw + 8, 16, rl.Color{18, 14, 24, 230})
         rl.DrawRectangleLines(i32(cx + card_w * 0.5) - kw / 2 - 4, i32(cy - 16), kw + 8, 16, is_selected ? COLOR_TEXT_GOLD : current_theme.wall_trim)
-        rl.DrawText(k_cstr, i32(cx + card_w * 0.5) - kw / 2, i32(cy - 15), 14, is_selected ? rl.GOLD : rl.WHITE)
+        rl.DrawText(k_cstr, i32(cx + card_w * 0.5) - kw / 2, i32(cy - 15), 13, is_selected ? rl.GOLD : rl.WHITE)
     }
 
     // --- State-Specific Overlays ---

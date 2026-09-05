@@ -2,7 +2,6 @@ package hellfire
 
 import "core:fmt"
 import "core:math"
-import "core:math/linalg"
 import "core:math/rand"
 import "core:strings"
 import rl "vendor:raylib"
@@ -48,7 +47,7 @@ update_screen_shake :: proc(dt: f32) -> [2]f32 {
 }
 
 emit_sparks :: proc(pos: [2]f32, color: rl.Color, count: int, speed: f32) {
-    for i in 0..<count {
+    for _ in 0..<count {
         if particle_count >= MAX_PARTICLES do break
 
         angle := rand.float32() * math.TAU
@@ -68,7 +67,7 @@ emit_sparks :: proc(pos: [2]f32, color: rl.Color, count: int, speed: f32) {
 }
 
 emit_burst :: proc(pos: [2]f32, color1, color2: rl.Color, count: int) {
-    for i in 0..<count {
+    for _ in 0..<count {
         if particle_count >= MAX_PARTICLES do break
 
         angle := rand.float32() * math.TAU

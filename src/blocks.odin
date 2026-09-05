@@ -1,7 +1,6 @@
 package hellfire
 
 import "core:math"
-import "core:math/linalg"
 import rl "vendor:raylib"
 
 blocks: [MAX_BLOCKS]Dungeon_Block

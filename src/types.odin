@@ -16,7 +16,10 @@ Game_State :: enum {
     BATTLE_FLYING,
     WAVE_CLEARED,
     GAME_OVER,
+    EVOLUTION_MENU,
 }
+
+MAX_EVO_STAGES :: 5
 
 Environment_Type :: enum {
     ABYSSAL_CRYPT,
