@@ -109,7 +109,8 @@ update_orb_physics :: proc(orb: ^Orb, enemies: ^[MAX_ENEMIES]Enemy, enemy_count:
                 combo_mult := combo_multiplier_for_count(orb.combo)
 
                 card_stage := game.card_stages[int(orb.element)]
-                evo_mult := 1.0 + f32(card_stage) * 1.0 // 1x, 2x, 3x, 4x, 5x
+                c_data := get_card_stage_data(orb.element, card_stage)
+                evo_mult := c_data.power_mult
 
                 base_dmg : f32 = 65.0
                 damage := int(base_dmg * evo_mult * elem_mult * combo_mult)
@@ -170,7 +171,8 @@ update_orb_physics :: proc(orb: ^Orb, enemies: ^[MAX_ENEMIES]Enemy, enemy_count:
                 crit_mult : f32 = is_crit ? 2.2 : 1.0
 
                 card_stage := game.card_stages[int(orb.element)]
-                evo_mult := 1.0 + f32(card_stage) * 1.0 // 1x, 2x, 3x, 4x, 5x
+                c_data := get_card_stage_data(orb.element, card_stage)
+                evo_mult := c_data.power_mult
 
                 base_dmg : f32 = 75.0
                 total_damage := int(base_dmg * evo_mult * elem_mult * combo_mult * crit_mult)

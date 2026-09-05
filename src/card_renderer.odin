@@ -5,27 +5,11 @@ import "core:math"
 import "core:strings"
 import rl "vendor:raylib"
 
-Card_Texture_Set :: struct {
-    fire:   rl.Texture2D,
-    water:  rl.Texture2D,
-    earth:  rl.Texture2D,
-    chaos:  rl.Texture2D,
-    light:  rl.Texture2D,
-    loaded: bool,
-}
-
 Card_Stage_Textures :: [MAX_EVO_STAGES]rl.Texture2D
 
-Evo_Texture_Set :: struct {
-    fire:  Card_Stage_Textures,
-    water: Card_Stage_Textures,
-    earth: Card_Stage_Textures,
-    chaos: Card_Stage_Textures,
-    light: Card_Stage_Textures,
-}
-
-card_textures: Card_Texture_Set
-evo_textures:  Evo_Texture_Set
+card_textures: [TOTAL_ELEMENTS]rl.Texture2D
+evo_textures:  [TOTAL_ELEMENTS]Card_Stage_Textures
+card_textures_loaded: bool
 
 load_card_texture :: proc(filename: cstring) -> rl.Texture2D {
     // Try directly from working directory
@@ -82,85 +66,76 @@ load_stage_texture :: proc(elem_name: string, s: int) -> rl.Texture2D {
 }
 
 init_card_textures :: proc() {
-    // Load base textures
-    card_textures.fire  = load_card_texture("assets/cards/card_fire.png")
-    card_textures.water = load_card_texture("assets/cards/card_water.png")
-    card_textures.earth = load_card_texture("assets/cards/card_earth.png")
-    card_textures.chaos = load_card_texture("assets/cards/card_chaos.png")
-    card_textures.light = load_card_texture("assets/cards/card_light.png")
+    loaded_count := 0
 
-    // Load stage-specific textures (supporting 1-based stages 1..5 as well as 0-based)
-    for s in 0..<MAX_EVO_STAGES {
-        evo_textures.fire[s]  = load_stage_texture("fire", s)
-        evo_textures.water[s] = load_stage_texture("water", s)
-        evo_textures.earth[s] = load_stage_texture("earth", s)
-        evo_textures.chaos[s] = load_stage_texture("chaos", s)
-        evo_textures.light[s] = load_stage_texture("light", s)
+    for elem in Element {
+        idx := int(elem)
+        e_name := strings.to_lower(element_name(elem), context.temp_allocator)
+
+        // Load base texture if available
+        p_base := fmt.ctprintf("assets/cards/card_%s.png", e_name)
+        card_textures[idx] = load_card_texture(p_base)
+        if card_textures[idx].id > 0 do loaded_count += 1
+
+        // Load stage-specific textures
+        for s in 0..<MAX_EVO_STAGES {
+            evo_textures[idx][s] = load_stage_texture(e_name, s)
+            if evo_textures[idx][s].id > 0 do loaded_count += 1
+        }
     }
 
-    card_textures.loaded = (card_textures.fire.id > 0 || card_textures.water.id > 0)
-    if card_textures.loaded {
-        fmt.println("[Hellfire] Creature card textures loaded successfully into VRAM!")
+    card_textures_loaded = (loaded_count > 0)
+    if card_textures_loaded {
+        fmt.printf("[Hellfire] Card textures loaded successfully (%d textures in VRAM)!\n", loaded_count)
     } else {
         fmt.println("[Hellfire] Notice: Running with procedural card art fallback.")
     }
 }
 
 unload_card_textures :: proc() {
-    if card_textures.fire.id > 0  do rl.UnloadTexture(card_textures.fire)
-    if card_textures.water.id > 0 do rl.UnloadTexture(card_textures.water)
-    if card_textures.earth.id > 0 do rl.UnloadTexture(card_textures.earth)
-    if card_textures.chaos.id > 0 do rl.UnloadTexture(card_textures.chaos)
-    if card_textures.light.id > 0 do rl.UnloadTexture(card_textures.light)
-
-    for s in 0..<MAX_EVO_STAGES {
-        if evo_textures.fire[s].id > 0  do rl.UnloadTexture(evo_textures.fire[s])
-        if evo_textures.water[s].id > 0 do rl.UnloadTexture(evo_textures.water[s])
-        if evo_textures.earth[s].id > 0 do rl.UnloadTexture(evo_textures.earth[s])
-        if evo_textures.chaos[s].id > 0 do rl.UnloadTexture(evo_textures.chaos[s])
-        if evo_textures.light[s].id > 0 do rl.UnloadTexture(evo_textures.light[s])
+    for idx in 0..<TOTAL_ELEMENTS {
+        if card_textures[idx].id > 0 {
+            rl.UnloadTexture(card_textures[idx])
+            card_textures[idx] = rl.Texture2D{}
+        }
+        for s in 0..<MAX_EVO_STAGES {
+            if evo_textures[idx][s].id > 0 {
+                rl.UnloadTexture(evo_textures[idx][s])
+                evo_textures[idx][s] = rl.Texture2D{}
+            }
+        }
     }
-    card_textures.loaded = false
+    card_textures_loaded = false
 }
 
 get_element_card_texture :: proc(elem: Element, stage: int = 0) -> (rl.Texture2D, bool) {
     s := math.clamp(stage, 0, MAX_EVO_STAGES - 1)
-
-    textures: ^Card_Stage_Textures
-    base_tex: rl.Texture2D
-
-    switch elem {
-    case .FIRE:
-        textures = &evo_textures.fire
-        base_tex = card_textures.fire
-    case .WATER:
-        textures = &evo_textures.water
-        base_tex = card_textures.water
-    case .EARTH:
-        textures = &evo_textures.earth
-        base_tex = card_textures.earth
-    case .CHAOS:
-        textures = &evo_textures.chaos
-        base_tex = card_textures.chaos
-    case .LIGHT:
-        textures = &evo_textures.light
-        base_tex = card_textures.light
-    }
+    idx := int(elem)
+    if idx < 0 || idx >= TOTAL_ELEMENTS do return rl.Texture2D{}, false
 
     // 1. Exact match for requested stage
-    if textures[s].id > 0 do return textures[s], true
+    if evo_textures[idx][s].id > 0 do return evo_textures[idx][s], true
 
-    // 2. If evolved (s > 0), search for the closest available evolved form (prefer s down to 1, then stage 4)
+    // 2. If evolved (s > 0), search for the closest available evolved form
     if s > 0 {
         for i := s - 1; i >= 1; i -= 1 {
-            if textures[i].id > 0 do return textures[i], true
+            if evo_textures[idx][i].id > 0 do return evo_textures[idx][i], true
         }
-        if textures[4].id > 0 do return textures[4], true
+        if evo_textures[idx][4].id > 0 do return evo_textures[idx][4], true
     }
 
     // 3. Stage 0 or base fallback
-    if textures[0].id > 0 do return textures[0], true
-    if base_tex.id > 0    do return base_tex, true
+    if evo_textures[idx][0].id > 0 do return evo_textures[idx][0], true
+    if card_textures[idx].id > 0   do return card_textures[idx], true
+
+    // 4. For dual elements: if no texture exists yet, fallback to primary parent's texture
+    if is_dual_element(elem) {
+        p1, _ := get_element_parents(elem)
+        p1_idx := int(p1)
+        if evo_textures[p1_idx][s].id > 0 do return evo_textures[p1_idx][s], true
+        if evo_textures[p1_idx][4].id > 0 do return evo_textures[p1_idx][4], true
+        if card_textures[p1_idx].id > 0   do return card_textures[p1_idx], true
+    }
 
     return rl.Texture2D{}, false
 }
@@ -239,10 +214,37 @@ draw_card :: proc(
     // Top Header: Elemental Gem Crest
     gem_r : f32 = math.min(top_header_h * 0.42, 12.0)
     gem_center := [2]f32{rect.x + rect.width * 0.5, rect.y + top_header_h * 0.52}
-    rl.DrawCircleV(gem_center, gem_r + 2, border_col)
-    rl.DrawCircleV(gem_center, gem_r, elem_col1)
-    rl.DrawCircleV(gem_center, gem_r * 0.5, elem_col2)
-    rl.DrawCircleV(gem_center, gem_r * 0.25, rl.WHITE)
+
+    if is_dual_element(elem) {
+        p1, p2 := get_element_parents(elem)
+        p1_c1 := element_primary_color(p1)
+        p1_c2 := element_secondary_color(p1)
+        p2_c1 := element_primary_color(p2)
+        p2_c2 := element_secondary_color(p2)
+
+        offset := gem_r * 0.65
+        c1 := [2]f32{gem_center.x - offset, gem_center.y}
+        c2 := [2]f32{gem_center.x + offset, gem_center.y}
+
+        // Parent 1 Gem (Left)
+        rl.DrawCircleV(c1, gem_r * 0.85, border_col)
+        rl.DrawCircleV(c1, gem_r * 0.70, p1_c1)
+        rl.DrawCircleV(c1, gem_r * 0.35, p1_c2)
+
+        // Parent 2 Gem (Right)
+        rl.DrawCircleV(c2, gem_r * 0.85, border_col)
+        rl.DrawCircleV(c2, gem_r * 0.70, p2_c1)
+        rl.DrawCircleV(c2, gem_r * 0.35, p2_c2)
+
+        // Golden center spark
+        rl.DrawCircleV(gem_center, gem_r * 0.3, rl.GOLD)
+        rl.DrawCircleV(gem_center, gem_r * 0.15, rl.WHITE)
+    } else {
+        rl.DrawCircleV(gem_center, gem_r + 2, border_col)
+        rl.DrawCircleV(gem_center, gem_r, elem_col1)
+        rl.DrawCircleV(gem_center, gem_r * 0.5, elem_col2)
+        rl.DrawCircleV(gem_center, gem_r * 0.25, rl.WHITE)
+    }
 
     // Tier Roman Numeral Badge on Top-Left Corner
     tier_tag: cstring
@@ -262,19 +264,19 @@ draw_card :: proc(
     bw := rl.MeasureText(tier_tag, i32(badge_size * 0.6))
     rl.DrawText(tier_tag, i32(badge_rect.x + badge_size * 0.5) - bw / 2, i32(badge_rect.y + 2), i32(badge_size * 0.6), (stage == 4) ? rl.GOLD : rl.WHITE)
 
-    // Rarity Stars (3 to 7 stars)
+    // Rarity Stars (3 to 8 stars)
     if rarity > 0 {
-        star_count := math.clamp(rarity, 1, 7)
-        star_spacing : f32 = math.min(rect.width / 8.5, 11.0)
+        star_count := math.clamp(rarity, 1, 8)
+        star_spacing : f32 = math.min(rect.width / 9.0, 10.5)
         start_star_x := gem_center.x - f32(star_count - 1) * star_spacing * 0.5
         star_y := gem_center.y - 1.0
 
         for s in 0..<star_count {
             sx := start_star_x + f32(s) * star_spacing
-            if math.abs(sx - gem_center.x) > gem_r + 1 {
+            if math.abs(sx - gem_center.x) > (is_dual_element(elem) ? (gem_r * 1.5) : (gem_r + 1.0)) {
                 star_col := (s >= 5) ? rl.RED : rl.GOLD
-                rl.DrawCircleV([2]f32{sx, star_y}, 2.2, star_col)
-                rl.DrawCircleV([2]f32{sx, star_y}, 0.9, rl.WHITE)
+                rl.DrawCircleV([2]f32{sx, star_y}, 2.0, star_col)
+                rl.DrawCircleV([2]f32{sx, star_y}, 0.8, rl.WHITE)
             }
         }
     }
@@ -319,13 +321,42 @@ draw_procedural_card_art :: proc(art_rect: rl.Rectangle, elem: Element, hurt_fla
     elem_col1 := element_primary_color(elem)
     elem_col2 := element_secondary_color(elem)
 
-    bg_col := rl.Color{28, 22, 38, 255}
+    bg_col := rl.Color{24, 18, 32, 255}
     if hurt_flash do bg_col = rl.Color{245, 240, 240, 255}
     rl.DrawRectangleRec(art_rect, bg_col)
 
     center_x := art_rect.x + art_rect.width * 0.5
     center_y := art_rect.y + art_rect.height * 0.5
     scale := art_rect.width * 0.38
+
+    if is_dual_element(elem) {
+        p1, p2 := get_element_parents(elem)
+        p1_col := element_primary_color(p1)
+        p2_col := element_primary_color(p2)
+
+        // Dual swirling cosmic energy rings
+        spin1 := time * 2.5
+        spin2 := -time * 2.2
+        rl.DrawCircleLinesV([2]f32{center_x, center_y}, scale * (0.88 + math.sin(spin1) * 0.08), p1_col)
+        rl.DrawCircleLinesV([2]f32{center_x, center_y}, scale * (0.68 + math.cos(spin2) * 0.08), p2_col)
+        rl.DrawCircleV([2]f32{center_x, center_y}, scale * 0.5, rl.Color{elem_col1.r, elem_col1.g, elem_col1.b, 70})
+
+        // Opposing spirit triangles for dual elements
+        pt1_1 := [2]f32{center_x + math.cos(spin1) * scale * 0.42, center_y + math.sin(spin1) * scale * 0.42}
+        pt1_2 := [2]f32{center_x + math.cos(spin1 + 2.2) * scale * 0.35, center_y + math.sin(spin1 + 2.2) * scale * 0.35}
+        pt1_3 := [2]f32{center_x + math.cos(spin1 + 4.2) * scale * 0.35, center_y + math.sin(spin1 + 4.2) * scale * 0.35}
+        rl.DrawTriangle(pt1_1, pt1_2, pt1_3, p1_col)
+
+        pt2_1 := [2]f32{center_x + math.cos(spin2) * scale * 0.38, center_y + math.sin(spin2) * scale * 0.38}
+        pt2_2 := [2]f32{center_x + math.cos(spin2 + 2.2) * scale * 0.32, center_y + math.sin(spin2 + 2.2) * scale * 0.32}
+        pt2_3 := [2]f32{center_x + math.cos(spin2 + 4.2) * scale * 0.32, center_y + math.sin(spin2 + 4.2) * scale * 0.32}
+        rl.DrawTriangle(pt2_1, pt2_2, pt2_3, p2_col)
+
+        // Core shining cosmic spark
+        rl.DrawCircleV([2]f32{center_x, center_y}, 4.5, rl.WHITE)
+        rl.DrawCircleV([2]f32{center_x, center_y}, 2.2, rl.GOLD)
+        return
+    }
 
     pulse := math.sin(time * 3.0) * 0.1 + 0.9
     rl.DrawCircleLinesV([2]f32{center_x, center_y}, scale * pulse, elem_col1)

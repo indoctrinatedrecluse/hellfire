@@ -3,38 +3,127 @@ package hellfire
 import "core:fmt"
 import "core:math"
 import "core:math/linalg"
+import "core:math/rand"
 import "core:strings"
 import rl "vendor:raylib"
 
 Game :: struct {
-    state:             Game_State,
-    current_wave:      int,
-    score:             int,
-    total_turns:       int,
-    game_time:         f32,
+    state:              Game_State,
+    current_wave:       int,
+    score:              int,
+    total_turns:        int,
+    game_time:          f32,
 
     // Battle Entities
-    orb:               Orb,
-    enemies:           [MAX_ENEMIES]Enemy,
-    enemy_count:       int,
+    orb:                Orb,
+    enemies:            [MAX_ENEMIES]Enemy,
+    enemy_count:        int,
 
     // Aiming State
-    is_aiming:         bool,
-    aim_pos:           [2]f32,
-    aim_preview:       Trajectory_Preview,
+    is_aiming:          bool,
+    aim_pos:            [2]f32,
+    aim_preview:        Trajectory_Preview,
 
     // Player Deck / Summoner Elements
-    selected_element:  Element,
+    selected_element:   Element,
 
     // Transitions
-    wave_clear_timer:  f32,
-    banner_timer:      f32,
+    wave_clear_timer:   f32,
+    banner_timer:       f32,
 
-    // Evolution Stages (0 to 4 for each element)
-    card_stages:       [5]int,
+    // Evolution Stages (0 to 4 for all 15 elements)
+    card_stages:        [TOTAL_ELEMENTS]int,
+
+    // Active Floor Offerings (2 randomly rolled dual elements on each floor)
+    active_floor_duals: [2]Element,
+    floor_reveal_timer: f32,
 }
 
 game: Game
+
+roll_floor_dual_cards :: proc(wave: int, theme_type: Environment_Type) -> [2]Element {
+    duals := [10]Element{
+        .STEAM, .MAGMA, .NETHERFLAME, .SOLAR, .MIRE,
+        .ABYSS, .GLACIER, .OBSIDIAN, .CRYSTAL, .ECLIPSE,
+    }
+
+    weights := [10]f32{
+        10.0, 10.0, 9.0, 8.0, 10.0,
+        9.0,  9.0,  9.0, 8.0, 7.0,
+    }
+
+    // Boost weights based on Environment Theme affinity (+65%)
+    switch theme_type {
+    case .MAGMA_CAVERNS:
+        weights[1] += 6.5 // MAGMA
+        weights[2] += 6.5 // NETHERFLAME
+        weights[0] += 5.0 // STEAM
+
+    case .SUNKEN_TEMPLE:
+        weights[0] += 6.0 // STEAM
+        weights[4] += 6.5 // MIRE
+        weights[5] += 6.5 // ABYSS
+        weights[6] += 6.0 // GLACIER
+
+    case .ABYSSAL_CRYPT:
+        weights[2] += 6.0 // NETHERFLAME
+        weights[5] += 6.5 // ABYSS
+        weights[7] += 6.5 // OBSIDIAN
+        weights[9] += 5.0 // ECLIPSE
+
+    case .VERDANT_CATACOMBS:
+        weights[4] += 7.0 // MIRE
+        weights[7] += 5.5 // OBSIDIAN
+        weights[8] += 6.5 // CRYSTAL
+
+    case .ASTRAL_SPIRE:
+        weights[3] += 7.0 // SOLAR
+        weights[6] += 5.5 // GLACIER
+        weights[8] += 6.5 // CRYSTAL
+        weights[9] += 7.0 // ECLIPSE
+    }
+
+    // Higher floors slightly favor higher rarity dual elements
+    if wave >= 3 {
+        weights[3] += f32(wave) * 0.8 // SOLAR
+        weights[8] += f32(wave) * 0.8 // CRYSTAL
+        weights[9] += f32(wave) * 1.0 // ECLIPSE
+    }
+
+    // Sample first element
+    total_w : f32 = 0.0
+    for w in weights do total_w += w
+
+    pick1_val := rand.float32() * total_w
+    acc : f32 = 0.0
+    idx1 := 0
+    for i in 0..<10 {
+        acc += weights[i]
+        if pick1_val <= acc {
+            idx1 = i
+            break
+        }
+    }
+
+    // Sample second distinct element without replacement
+    weights2 := weights
+    weights2[idx1] = 0.0
+    total_w2 : f32 = 0.0
+    for w in weights2 do total_w2 += w
+
+    pick2_val := rand.float32() * total_w2
+    acc2 : f32 = 0.0
+    idx2 := (idx1 + 1) % 10
+    for i in 0..<10 {
+        acc2 += weights2[i]
+        if pick2_val <= acc2 {
+            idx2 = i
+            break
+        }
+    }
+
+    return [2]Element{duals[idx1], duals[idx2]}
+}
 
 game_init :: proc() {
     game.state = .TITLE
@@ -44,13 +133,15 @@ game_init :: proc() {
     game.game_time = 0.0
     game.selected_element = .FIRE
     game.banner_timer = 2.5
+    game.floor_reveal_timer = 3.0
 
-    for i in 0..<5 {
+    for i in 0..<TOTAL_ELEMENTS {
         game.card_stages[i] = 0
     }
     init_evolution_menu()
 
     set_random_environment()
+    game.active_floor_duals = roll_floor_dual_cards(game.current_wave, current_theme.type)
     reset_orb(&game.orb, game.selected_element)
     spawn_current_wave()
     spawn_blocks_for_wave(game.current_wave)
@@ -82,6 +173,9 @@ game_update :: proc(dt: f32, mouse_pos: [2]f32, mouse_pressed, mouse_down, mouse
     if game.banner_timer > 0.0 {
         game.banner_timer -= dt
     }
+    if game.floor_reveal_timer > 0.0 {
+        game.floor_reveal_timer -= dt
+    }
 
     // Screen shake update
     _ = update_screen_shake(dt)
@@ -106,12 +200,16 @@ game_update :: proc(dt: f32, mouse_pos: [2]f32, mouse_pressed, mouse_down, mouse
         }
 
     case .BATTLE_AIMING:
-        // Hotkeys for switching elements: 1=Fire, 2=Water, 3=Earth, 4=Chaos, 5=Light
+        // Hotkeys for switching basic elements: 1=Fire, 2=Water, 3=Earth, 4=Chaos, 5=Light
         if rl.IsKeyPressed(.ONE)   do select_element(.FIRE)
         if rl.IsKeyPressed(.TWO)   do select_element(.WATER)
         if rl.IsKeyPressed(.THREE) do select_element(.EARTH)
         if rl.IsKeyPressed(.FOUR)  do select_element(.CHAOS)
         if rl.IsKeyPressed(.FIVE)  do select_element(.LIGHT)
+
+        // Hotkeys for chamber dual elements: 6=Dual 1, 7=Dual 2
+        if rl.IsKeyPressed(.SIX)   do select_element(game.active_floor_duals[0])
+        if rl.IsKeyPressed(.SEVEN) do select_element(game.active_floor_duals[1])
 
         // Open Evolution Altar Menu with [E]
         if rl.IsKeyPressed(.E) {
@@ -121,21 +219,35 @@ game_update :: proc(dt: f32, mouse_pos: [2]f32, mouse_pressed, mouse_down, mouse
         }
 
         // Check if player clicked the EVOLVE button on the battle HUD
-        btn_evo_hud := rl.Rectangle{f32(VIRTUAL_WIDTH) - 170.0, f32(VIRTUAL_HEIGHT) - 262.0, 150.0, 38.0}
+        btn_evo_hud := rl.Rectangle{f32(VIRTUAL_WIDTH) - 170.0, f32(VIRTUAL_HEIGHT) - 235.0, 150.0, 34.0}
         if mouse_pressed && rl.CheckCollisionPointRec(mouse_pos, btn_evo_hud) {
             game.state = .EVOLUTION_MENU
             evo_menu.selected_element = game.selected_element
             return
         }
 
-        // Check if player clicked a creature card in the bottom deck
+        // Check if player clicked a card in the 7-slot bottom deck
         if mouse_pressed {
-            card_w : f32 = 132.0
-            card_h : f32 = 176.0
-            base_y : f32 = f32(VIRTUAL_HEIGHT) - 184.0
-            for elem in Element {
-                idx := int(elem)
-                cx := 10.0 + f32(idx) * 142.0
+            card_w : f32 = 94.0
+            card_h : f32 = 148.0
+            base_y : f32 = f32(VIRTUAL_HEIGHT) - 162.0
+
+            // 5 Basic Cards
+            for i in 0..<5 {
+                elem := Element(i)
+                cx := 8.0 + f32(i) * 99.0
+                cy := (elem == game.selected_element) ? (base_y - 10.0) : base_y
+                card_rect := rl.Rectangle{cx, cy, card_w, card_h}
+                if rl.CheckCollisionPointRec(mouse_pos, card_rect) {
+                    select_element(elem)
+                    return
+                }
+            }
+
+            // 2 Active Chamber Dual Cards
+            for i in 0..<2 {
+                elem := game.active_floor_duals[i]
+                cx := 516.0 + f32(i) * 100.0
                 cy := (elem == game.selected_element) ? (base_y - 10.0) : base_y
                 card_rect := rl.Rectangle{cx, cy, card_w, card_h}
                 if rl.CheckCollisionPointRec(mouse_pos, card_rect) {
@@ -220,11 +332,13 @@ game_update :: proc(dt: f32, mouse_pos: [2]f32, mouse_pressed, mouse_down, mouse
         if game.wave_clear_timer <= 0.0 || (mouse_released && game.wave_clear_timer < 1.4) {
             game.current_wave += 1
             set_random_environment()
+            game.active_floor_duals = roll_floor_dual_cards(game.current_wave, current_theme.type)
             spawn_current_wave()
             spawn_blocks_for_wave(game.current_wave)
             reset_orb(&game.orb, game.selected_element)
             game.state = .BATTLE_AIMING
             game.banner_timer = 2.5
+            game.floor_reveal_timer = 3.5
         }
 
     case .GAME_OVER:
@@ -375,35 +489,36 @@ draw_hud :: proc(time: f32) {
     draw_elemental_wheel([2]f32{660.0, 120.0})
 
     // --- Bottom Elemental Summoning Deck ---
-    tray_h : f32 = 215.0
+    tray_h : f32 = 198.0
     deck_tray := rl.Rectangle{0, f32(VIRTUAL_HEIGHT) - tray_h, f32(VIRTUAL_WIDTH), tray_h}
     rl.DrawRectangleRec(deck_tray, rl.Color{16, 12, 22, 245})
     rl.DrawRectangleLinesEx(deck_tray, 2, current_theme.wall_trim)
 
-    deck_title : cstring : "SUMMON DECK [1-5]: Water > Fire > Earth > Light > Chaos > Water"
-    dt_w := rl.MeasureText(deck_title, 15)
-    rl.DrawText(deck_title, VIRTUAL_WIDTH / 2 - dt_w / 2, VIRTUAL_HEIGHT - 206, 15, current_theme.wall_trim)
+    deck_title : cstring : "SUMMON DECK  |  [1-5] Basic Elements  |  [6-7] Chamber Ascended Duals"
+    dt_w := rl.MeasureText(deck_title, 14)
+    rl.DrawText(deck_title, VIRTUAL_WIDTH / 2 - dt_w / 2, VIRTUAL_HEIGHT - 188, 14, current_theme.wall_trim)
 
-    card_w : f32 = 132.0
-    card_h : f32 = 176.0
-    base_y : f32 = f32(VIRTUAL_HEIGHT) - 184.0
+    card_w : f32 = 94.0
+    card_h : f32 = 148.0
+    base_y : f32 = f32(VIRTUAL_HEIGHT) - 162.0
 
     // EVOLVE Sanctuary Button on Battle HUD
-    btn_evo_rect := rl.Rectangle{f32(VIRTUAL_WIDTH) - 170.0, f32(VIRTUAL_HEIGHT) - 262.0, 150.0, 38.0}
+    btn_evo_rect := rl.Rectangle{f32(VIRTUAL_WIDTH) - 170.0, f32(VIRTUAL_HEIGHT) - 235.0, 150.0, 34.0}
     rl.DrawRectangleRounded(btn_evo_rect, 0.25, 4, rl.Color{32, 22, 44, 230})
     rl.DrawRectangleRoundedLinesEx(btn_evo_rect, 0.25, 4, 2.0, COLOR_TEXT_GOLD)
     evo_btn_text : cstring : "EVOLVE [E] >>>"
-    ebw := rl.MeasureText(evo_btn_text, 16)
-    rl.DrawText(evo_btn_text, i32(btn_evo_rect.x + btn_evo_rect.width * 0.5) - ebw / 2, i32(btn_evo_rect.y + 11), 16, rl.GOLD)
+    ebw := rl.MeasureText(evo_btn_text, 15)
+    rl.DrawText(evo_btn_text, i32(btn_evo_rect.x + btn_evo_rect.width * 0.5) - ebw / 2, i32(btn_evo_rect.y + 9), 15, rl.GOLD)
 
-    for elem in Element {
-        idx := int(elem)
-        cx := 10.0 + f32(idx) * 142.0
+    // Render 5 Basic Cards
+    for i in 0..<5 {
+        elem := Element(i)
+        cx := 8.0 + f32(i) * 99.0
         is_selected := (elem == game.selected_element)
-        cy := is_selected ? (base_y - 12.0) : base_y
+        cy := is_selected ? (base_y - 10.0) : base_y
         card_rect := rl.Rectangle{cx, cy, card_w, card_h}
 
-        c_stage := game.card_stages[idx]
+        c_stage := game.card_stages[i]
         c_data := get_card_stage_data(elem, c_stage)
 
         draw_card(
@@ -421,13 +536,71 @@ draw_hud :: proc(time: f32) {
         )
 
         // Hotkey & Multiplier Badge above card
-        key_str := fmt.tprintf("[%d]  %.0fx", idx + 1, c_data.power_mult)
+        key_str := fmt.tprintf("[%d]  %.0fx", i + 1, c_data.power_mult)
         k_cstr := strings.clone_to_cstring(key_str)
         defer delete(k_cstr)
-        kw := rl.MeasureText(k_cstr, 13)
-        rl.DrawRectangle(i32(cx + card_w * 0.5) - kw / 2 - 4, i32(cy - 16), kw + 8, 16, rl.Color{18, 14, 24, 230})
-        rl.DrawRectangleLines(i32(cx + card_w * 0.5) - kw / 2 - 4, i32(cy - 16), kw + 8, 16, is_selected ? COLOR_TEXT_GOLD : current_theme.wall_trim)
-        rl.DrawText(k_cstr, i32(cx + card_w * 0.5) - kw / 2, i32(cy - 15), 13, is_selected ? rl.GOLD : rl.WHITE)
+        kw := rl.MeasureText(k_cstr, 12)
+        rl.DrawRectangle(i32(cx + card_w * 0.5) - kw / 2 - 3, i32(cy - 15), kw + 6, 15, rl.Color{18, 14, 24, 230})
+        rl.DrawRectangleLines(i32(cx + card_w * 0.5) - kw / 2 - 3, i32(cy - 15), kw + 6, 15, is_selected ? COLOR_TEXT_GOLD : current_theme.wall_trim)
+        rl.DrawText(k_cstr, i32(cx + card_w * 0.5) - kw / 2, i32(cy - 14), 12, is_selected ? rl.GOLD : rl.WHITE)
+    }
+
+    // Vertical Runic Divider between Basic & Dual slots
+    div_x : f32 = 507.0
+    rl.DrawLineEx([2]f32{div_x, base_y - 8.0}, [2]f32{div_x, base_y + card_h + 4.0}, 2.0, rl.Color{140, 115, 75, 160})
+    rl.DrawCircleV([2]f32{div_x, base_y + card_h * 0.5}, 4.0, rl.GOLD)
+
+    // Render 2 Active Chamber Ascended Dual Cards
+    for i in 0..<2 {
+        elem := game.active_floor_duals[i]
+        elem_idx := int(elem)
+        cx := 516.0 + f32(i) * 100.0
+        is_selected := (elem == game.selected_element)
+        cy := is_selected ? (base_y - 10.0) : base_y
+        card_rect := rl.Rectangle{cx, cy, card_w, card_h}
+
+        c_stage := game.card_stages[elem_idx]
+        c_data := get_card_stage_data(elem, c_stage)
+
+        draw_card(
+            rect       = card_rect,
+            elem       = elem,
+            name       = c_data.name,
+            rarity     = c_data.rarity,
+            hp_cur     = 100,
+            hp_max     = 100,
+            selected   = is_selected,
+            hurt_flash = false,
+            is_monster = false,
+            time       = time,
+            stage      = c_stage,
+        )
+
+        // Hotkey & Multiplier Badge above card
+        key_str := fmt.tprintf("[%d]  %.1fx", 6 + i, c_data.power_mult)
+        k_cstr := strings.clone_to_cstring(key_str)
+        defer delete(k_cstr)
+        kw := rl.MeasureText(k_cstr, 12)
+        rl.DrawRectangle(i32(cx + card_w * 0.5) - kw / 2 - 3, i32(cy - 15), kw + 6, 15, rl.Color{24, 18, 30, 240})
+        rl.DrawRectangleLines(i32(cx + card_w * 0.5) - kw / 2 - 3, i32(cy - 15), kw + 6, 15, rl.GOLD)
+        rl.DrawText(k_cstr, i32(cx + card_w * 0.5) - kw / 2, i32(cy - 14), 12, rl.GOLD)
+    }
+
+    // Chamber Ascended Duals Discovery Banner
+    if game.floor_reveal_timer > 0.0 && game.state == .BATTLE_AIMING {
+        alpha := math.clamp(game.floor_reveal_timer / 0.6, 0.0, 1.0)
+        pop_y : f32 = 230.0
+        pop_rect := rl.Rectangle{0, pop_y, f32(VIRTUAL_WIDTH), 52.0}
+        rl.DrawRectangleRec(pop_rect, rl.Color{18, 14, 28, u8(alpha * 235.0)})
+        rl.DrawRectangleLinesEx(pop_rect, 2.0, rl.GOLD)
+
+        d1_name := strings.to_upper(element_name(game.active_floor_duals[0]), context.temp_allocator)
+        d2_name := strings.to_upper(element_name(game.active_floor_duals[1]), context.temp_allocator)
+        reveal_str := fmt.tprintf("✦ CHAMBER ASCENDED DUALS: [%s] & [%s] (1.5x POWER) ✦", d1_name, d2_name)
+        r_cstr := strings.clone_to_cstring(reveal_str)
+        defer delete(r_cstr)
+        rw := rl.MeasureText(r_cstr, 17)
+        rl.DrawText(r_cstr, VIRTUAL_WIDTH / 2 - rw / 2, i32(pop_y + 17), 17, rl.GOLD)
     }
 
     // --- State-Specific Overlays ---
@@ -505,12 +678,22 @@ draw_elemental_wheel :: proc(center: [2]f32) {
 }
 
 player_summon_name :: proc(elem: Element) -> (string, int) {
-    switch elem {
-    case .FIRE:  return "Ignis Wyrm", 4
-    case .WATER: return "Leviathan", 4
-    case .EARTH: return "Gaea Titan", 4
-    case .CHAOS: return "Malphas", 5
-    case .LIGHT: return "Seraph", 5
+    #partial switch elem {
+    case .FIRE:        return "Ignis Wyrm", 4
+    case .WATER:       return "Leviathan", 4
+    case .EARTH:       return "Gaea Titan", 4
+    case .CHAOS:       return "Malphas", 5
+    case .LIGHT:       return "Seraph", 5
+    case .STEAM:       return "Boiling Hydra", 5
+    case .MAGMA:       return "Volcano Colossus", 5
+    case .NETHERFLAME: return "Nether Fiend", 6
+    case .SOLAR:       return "Sun Sovereign", 6
+    case .MIRE:        return "Swamp Chimera", 5
+    case .ABYSS:       return "Kraken Terror", 6
+    case .GLACIER:     return "Frost Empress", 6
+    case .OBSIDIAN:    return "Onyx Gargoyle", 6
+    case .CRYSTAL:     return "Prism Dragon", 6
+    case .ECLIPSE:     return "Void Celestial", 7
+    case:              return "Ascended Avatar", 5
     }
-    return "Creature", 3
 }
