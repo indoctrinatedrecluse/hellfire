@@ -158,4 +158,6 @@ hellfire/
 ---
 
 ## License
-Proprietary / All rights reserved.
+This project is licensed under the [MIT License](LICENSE) - see the [LICENSE](LICENSE) file for details.
+
+Copyright &copy; 2026 indoctrinatedrecluse. All rights reserved.
