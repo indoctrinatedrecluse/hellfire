@@ -1,0 +1,165 @@
+name: Release Hellfire
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (build only, do not publish release)'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows x64
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Odin
+        uses: laytan/setup-odin@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compile Windows Executable
+        run: |
+          mkdir dist
+          odin build src -out:dist/hellfire.exe -o:speed -subsystem:windows
+
+      - name: Bundle Assets
+        shell: pwsh
+        run: |
+          Copy-Item -Recurse -Force assets dist/assets
+
+      - name: Package Windows Release Archive
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/* -DestinationPath hellfire-windows-x64.zip
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hellfire-windows-x64
+          path: hellfire-windows-x64.zip
+          if-no-files-found: error
+
+  build-android:
+    name: Build Android APK (ARM64)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26d
+          add-to-path: true
+
+      - name: Setup Odin
+        uses: laytan/setup-odin@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Raylib for Android ARM64
+        run: |
+          git clone --depth 1 --branch 5.5 https://github.com/raysan5/raylib.git raylib-src
+          cmake -S raylib-src -B raylib-build \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-28 \
+            -DPLATFORM=Android \
+            -DBUILD_EXAMPLES=OFF \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build raylib-build --target raylib
+
+      - name: Configure Odin Raylib for Android
+        run: |
+          ODIN_DIR=$(odin root)
+          SYSROOT_LIB="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/28"
+          
+          # Copy Android libraylib.a into NDK sysroot
+          cp raylib-build/raylib/libraylib.a "$SYSROOT_LIB/libraylib.a"
+          
+          # Also place it in vendor:raylib linux-arm64
+          mkdir -p "$ODIN_DIR/vendor/raylib/linux-arm64"
+          cp raylib-build/raylib/libraylib.a "$ODIN_DIR/vendor/raylib/linux-arm64/libraylib.a"
+          
+          # Create dummy libX11.a in NDK sysroot to satisfy vendor:raylib's -lX11 link argument
+          ar cr "$SYSROOT_LIB/libX11.a"
+
+      - name: Compile Odin Android Shared Library
+        env:
+          ODIN_ANDROID_NDK: ${{ env.ANDROID_NDK_HOME }}
+        run: |
+          odin build src -target:linux_arm64 -subtarget:android -build-mode:shared -out:libhellfire.so -o:speed \
+            -extra-linker-flags:"-lEGL -lGLESv2 -landroid -llog -lOpenSLES"
+
+      - name: Prepare Android Project Assets and Libs
+        run: |
+          mkdir -p android/app/src/main/jniLibs/arm64-v8a
+          cp libhellfire.so android/app/src/main/jniLibs/arm64-v8a/libhellfire.so
+          
+          mkdir -p android/app/src/main/assets
+          cp -r assets/* android/app/src/main/assets/
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.7'
+
+      - name: Build Android APK
+        working-directory: android
+        run: |
+          gradle assembleRelease --stacktrace
+          cp app/build/outputs/apk/release/app-release.apk ../hellfire-android.apk
+
+      - name: Upload Android Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hellfire-android
+          path: hellfire-android.apk
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [build-windows, build-android]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') && (github.event.inputs.dry_run != 'true')
+    steps:
+      - name: Download Windows Build
+        uses: actions/download-artifact@v4
+        with:
+          name: hellfire-windows-x64
+          path: release-artifacts
+
+      - name: Download Android Build
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: hellfire-android
+          path: release-artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-artifacts/hellfire-windows-x64.zip
+            release-artifacts/*.apk
+          generate_release_notes: true
+          draft: false
+          prerelease: false

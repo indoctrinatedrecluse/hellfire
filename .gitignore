@@ -8,4 +8,16 @@ bin/
 # System files
 .DS_Store
 Thumbs.db
+# Build and distribution directories
+dist/
+*.zip
+*.apk
+
+# Android build caches
+.gradle/
+android/**/build/
+android/.gradle/
+android/app/src/main/jniLibs/
+android/app/src/main/assets/
+*.so
 

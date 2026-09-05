@@ -115,6 +115,18 @@ To compile and launch immediately:
 odin build src -out:bin\hellfire.exe -debug
 ```
 
+### Automated Releases (GitHub Actions)
+Releases for **Windows (`.zip`)** and **Android (`.apk`)** are automatically built, packaged, and published via GitHub Actions whenever a version tag is pushed:
+
+```powershell
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+- **Windows**: Bundles `hellfire.exe` (compiled with `-o:speed -subsystem:windows`) and the full `assets/` directory into `hellfire-windows-x64.zip`.
+- **Android**: Compiles Raylib and Odin for ARM64-v8a (`NativeActivity`), packaging all game assets into `hellfire-android.apk`.
+- You can also manually trigger builds anytime from the **Actions** tab on GitHub via **Run workflow**.
+
 ---
 
 ## Project Structure
