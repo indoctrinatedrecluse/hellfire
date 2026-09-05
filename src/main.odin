@@ -10,6 +10,7 @@ main :: proc() {
     rl.SetConfigFlags({.WINDOW_RESIZABLE, .VSYNC_HINT, .MSAA_4X_HINT})
     rl.InitWindow(WINDOW_INIT_WIDTH, WINDOW_INIT_HEIGHT, "Hellfire: Card Flick Dungeon Crawler")
     defer rl.CloseWindow()
+    rl.SetExitKey(.KEY_NULL) // Disable ESC closing window so menus can handle it
 
     rl.SetWindowMinSize(360, 640)
     rl.SetTargetFPS(60)

@@ -158,7 +158,7 @@ draw_card :: proc(
     elem_col1 := element_primary_color(elem)
     elem_col2 := element_secondary_color(elem)
 
-    // Higher stage radiant outer aura
+    // Higher stage radiant outer aura and Tier V God Rays
     if stage >= 3 || selected {
         glow_pulse := math.sin(time * (4.0 + f32(stage) * 1.5)) * 0.2 + 0.8
         glow_pad : f32 = 6.0 + f32(stage) * 2.0
@@ -168,6 +168,21 @@ draw_card :: proc(
         aura_col.a = u8(glow_pulse * (100.0 + f32(stage) * 25.0))
         rl.DrawRectangleRounded(glow_rect, 0.12, 4, aura_col)
         rl.DrawRectangleRoundedLinesEx(glow_rect, 0.12, 4, 2.0 + f32(stage) * 0.5, (stage == 4) ? rl.GOLD : COLOR_TEXT_GOLD)
+    }
+
+    // Tier V Divine Celestial God-Rays
+    if stage == 4 {
+        center := [2]f32{rect.x + rect.width * 0.5, rect.y + rect.height * 0.5}
+        ray_len := rect.width * 0.82
+        num_rays := 12
+        for i in 0..<num_rays {
+            ang := time * 0.5 + f32(i) * (math.PI * 2.0 / f32(num_rays))
+            p1 := [2]f32{center.x + math.cos(ang) * ray_len, center.y + math.sin(ang) * ray_len}
+            p2 := [2]f32{center.x + math.cos(ang + 0.12) * ray_len, center.y + math.sin(ang + 0.12) * ray_len}
+            ray_pulse := math.sin(time * 3.0 + f32(i)) * 0.15 + 0.85
+            ray_alpha := u8(45.0 * ray_pulse)
+            rl.DrawTriangle(center, p1, p2, rl.Color{255, 220, 80, ray_alpha})
+        }
     }
 
     // Card Backing Shadow
@@ -188,9 +203,9 @@ draw_card :: proc(
     rl.DrawRectangleRoundedLinesEx(rect, 0.1, 4, selected ? 3.0 : (2.0 + f32(stage) * 0.4), border_col)
 
     // Inner Artwork Viewport
-    art_margin : f32 = math.max(rect.width * 0.06, 4.0)
-    top_header_h : f32 = math.max(rect.height * 0.12, 16.0)
-    bot_footer_h : f32 = math.max(rect.height * 0.18, 22.0)
+    art_margin : f32 = math.max(rect.width * 0.05, 3.0)
+    top_header_h : f32 = math.max(rect.height * 0.10, 15.0)
+    bot_footer_h : f32 = math.max(rect.height * 0.15, 24.0)
 
     art_rect := rl.Rectangle{
         rect.x + art_margin,
@@ -257,17 +272,17 @@ draw_card :: proc(
     case:   tier_tag = "I"
     }
 
-    badge_size : f32 = math.clamp(rect.width * 0.18, 16.0, 24.0)
+    badge_size : f32 = math.clamp(rect.width * 0.18, 16.0, 26.0)
     badge_rect := rl.Rectangle{rect.x + 3, rect.y + 3, badge_size, badge_size * 0.8}
-    rl.DrawRectangleRec(badge_rect, rl.Color{16, 12, 22, 220})
-    rl.DrawRectangleLinesEx(badge_rect, 1.0, border_col)
+    rl.DrawRectangleRec(badge_rect, rl.Color{16, 12, 22, 235})
+    rl.DrawRectangleLinesEx(badge_rect, 1.2, border_col)
     bw := rl.MeasureText(tier_tag, i32(badge_size * 0.6))
     rl.DrawText(tier_tag, i32(badge_rect.x + badge_size * 0.5) - bw / 2, i32(badge_rect.y + 2), i32(badge_size * 0.6), (stage == 4) ? rl.GOLD : rl.WHITE)
 
     // Rarity Stars (3 to 8 stars)
     if rarity > 0 {
         star_count := math.clamp(rarity, 1, 8)
-        star_spacing : f32 = math.min(rect.width / 9.0, 10.5)
+        star_spacing : f32 = math.min(rect.width / 9.0, 11.0)
         start_star_x := gem_center.x - f32(star_count - 1) * star_spacing * 0.5
         star_y := gem_center.y - 1.0
 
@@ -275,8 +290,8 @@ draw_card :: proc(
             sx := start_star_x + f32(s) * star_spacing
             if math.abs(sx - gem_center.x) > (is_dual_element(elem) ? (gem_r * 1.5) : (gem_r + 1.0)) {
                 star_col := (s >= 5) ? rl.RED : rl.GOLD
-                rl.DrawCircleV([2]f32{sx, star_y}, 2.0, star_col)
-                rl.DrawCircleV([2]f32{sx, star_y}, 0.8, rl.WHITE)
+                rl.DrawCircleV([2]f32{sx, star_y}, 2.2, star_col)
+                rl.DrawCircleV([2]f32{sx, star_y}, 0.9, rl.WHITE)
             }
         }
     }
@@ -288,17 +303,22 @@ draw_card :: proc(
         rect.width - 6,
         bot_footer_h - 6,
     }
-    rl.DrawRectangleRec(ribbon_rect, rl.Color{16, 12, 22, 230})
-    rl.DrawRectangleLinesEx(ribbon_rect, 1.0, border_col)
+    rl.DrawRectangleRec(ribbon_rect, rl.Color{14, 10, 20, 240})
+    rl.DrawRectangleLinesEx(ribbon_rect, 1.2, border_col)
 
-    // Creature Name
+    // Creature Name with dynamic responsive text scaling
     if len(name) > 0 {
         name_cstr := strings.clone_to_cstring(name)
         defer delete(name_cstr)
-        font_size : i32 = i32(math.clamp(rect.width * 0.105, 10.0, 15.0))
+
+        font_size : i32 = i32(math.clamp(rect.width * 0.075, 11.0, 22.0))
+        for font_size > 9 && rl.MeasureText(name_cstr, font_size) > i32(ribbon_rect.width - 8) {
+            font_size -= 1
+        }
+
         nw := rl.MeasureText(name_cstr, font_size)
         nx := i32(rect.x + rect.width * 0.5) - nw / 2
-        ny := i32(ribbon_rect.y + 2)
+        ny := i32(ribbon_rect.y + (ribbon_rect.height - f32(font_size)) * 0.5)
         name_color := (stage == 4) ? rl.GOLD : rl.RAYWHITE
         rl.DrawText(name_cstr, nx, ny, font_size, name_color)
     }
