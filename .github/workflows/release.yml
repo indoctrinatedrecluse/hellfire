@@ -65,10 +65,18 @@ jobs:
           java-version: '17'
 
       - name: Setup Android NDK
+        id: setup-ndk
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r26d
           add-to-path: true
+
+      - name: Set NDK Environment Variables
+        run: |
+          NDK_PATH="${{ steps.setup-ndk.outputs.ndk-path }}"
+          echo "ANDROID_NDK_HOME=$NDK_PATH" >> $GITHUB_ENV
+          echo "ANDROID_NDK_ROOT=$NDK_PATH" >> $GITHUB_ENV
+          echo "ODIN_ANDROID_NDK=$NDK_PATH" >> $GITHUB_ENV
 
       - name: Setup Odin
         uses: laytan/setup-odin@v2
@@ -77,11 +85,12 @@ jobs:
 
       - name: Build Raylib for Android ARM64
         run: |
+          NDK_PATH="${ANDROID_NDK_HOME:-${{ steps.setup-ndk.outputs.ndk-path }}}"
           git clone --depth 1 --branch 5.5 https://github.com/raysan5/raylib.git raylib-src
           cmake -S raylib-src -B raylib-build \
-            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK_PATH/build/cmake/android.toolchain.cmake" \
             -DANDROID_ABI=arm64-v8a \
-            -DANDROID_PLATFORM=android-28 \
+            -DANDROID_PLATFORM=android-34 \
             -DPLATFORM=Android \
             -DBUILD_EXAMPLES=OFF \
             -DCMAKE_BUILD_TYPE=Release
@@ -90,22 +99,26 @@ jobs:
       - name: Configure Odin Raylib for Android
         run: |
           ODIN_DIR=$(odin root)
-          SYSROOT_LIB="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/28"
+          NDK_PATH="${ANDROID_NDK_HOME:-${{ steps.setup-ndk.outputs.ndk-path }}}"
+          SYSROOT_BASE="$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android"
           
-          # Copy Android libraylib.a into NDK sysroot
-          cp raylib-build/raylib/libraylib.a "$SYSROOT_LIB/libraylib.a"
+          # Copy Android libraylib.a into NDK sysroot directories (both base and API 34)
+          mkdir -p "$SYSROOT_BASE" "$SYSROOT_BASE/34"
+          cp raylib-build/raylib/libraylib.a "$SYSROOT_BASE/libraylib.a"
+          cp raylib-build/raylib/libraylib.a "$SYSROOT_BASE/34/libraylib.a"
           
           # Also place it in vendor:raylib linux-arm64
           mkdir -p "$ODIN_DIR/vendor/raylib/linux-arm64"
           cp raylib-build/raylib/libraylib.a "$ODIN_DIR/vendor/raylib/linux-arm64/libraylib.a"
           
           # Create dummy libX11.a in NDK sysroot to satisfy vendor:raylib's -lX11 link argument
-          ar cr "$SYSROOT_LIB/libX11.a"
+          ar cr "$SYSROOT_BASE/libX11.a"
+          ar cr "$SYSROOT_BASE/34/libX11.a"
 
       - name: Compile Odin Android Shared Library
-        env:
-          ODIN_ANDROID_NDK: ${{ env.ANDROID_NDK_HOME }}
         run: |
+          export ODIN_ANDROID_NDK="${ODIN_ANDROID_NDK:-${ANDROID_NDK_HOME:-${{ steps.setup-ndk.outputs.ndk-path }}}}"
+          echo "Using ODIN_ANDROID_NDK: $ODIN_ANDROID_NDK"
           odin build src -target:linux_arm64 -subtarget:android -build-mode:shared -out:libhellfire.so -o:speed \
             -extra-linker-flags:"-lEGL -lGLESv2 -landroid -llog -lOpenSLES"
 
@@ -126,7 +139,7 @@ jobs:
         working-directory: android
         run: |
           gradle assembleRelease --stacktrace
-          cp app/build/outputs/apk/release/app-release.apk ../hellfire-android.apk
+          find app/build/outputs/apk/ -name "*.apk" -exec cp {} ../hellfire-android.apk \;
 
       - name: Upload Android Artifact
         uses: actions/upload-artifact@v4
