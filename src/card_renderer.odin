@@ -60,6 +60,27 @@ load_card_texture :: proc(filename: cstring) -> rl.Texture2D {
     return rl.Texture2D{}
 }
 
+load_stage_texture :: proc(elem_name: string, s: int) -> rl.Texture2D {
+    // 1. Try 1-based stage filename: e.g. card_fire_stage_2.png for Tier II (s=1)
+    p_1based := fmt.ctprintf("assets/cards/card_%s_stage_%d.png", elem_name, s + 1)
+    tex := load_card_texture(p_1based)
+    if tex.id > 0 do return tex
+
+    // 2. Try 0-based stage filename: e.g. card_fire_stage_1.png for Tier II (s=1)
+    p_0based := fmt.ctprintf("assets/cards/card_%s_stage_%d.png", elem_name, s)
+    tex = load_card_texture(p_0based)
+    if tex.id > 0 do return tex
+
+    // 3. For Tier I (s=0), try base card filename
+    if s == 0 {
+        p_base := fmt.ctprintf("assets/cards/card_%s.png", elem_name)
+        tex = load_card_texture(p_base)
+        if tex.id > 0 do return tex
+    }
+
+    return rl.Texture2D{}
+}
+
 init_card_textures :: proc() {
     // Load base textures
     card_textures.fire  = load_card_texture("assets/cards/card_fire.png")
@@ -68,19 +89,13 @@ init_card_textures :: proc() {
     card_textures.chaos = load_card_texture("assets/cards/card_chaos.png")
     card_textures.light = load_card_texture("assets/cards/card_light.png")
 
-    // Load stage-specific textures if present
+    // Load stage-specific textures (supporting 1-based stages 1..5 as well as 0-based)
     for s in 0..<MAX_EVO_STAGES {
-        path_fire  := fmt.ctprintf("assets/cards/card_fire_stage_%d.png", s)
-        path_water := fmt.ctprintf("assets/cards/card_water_stage_%d.png", s)
-        path_earth := fmt.ctprintf("assets/cards/card_earth_stage_%d.png", s)
-        path_chaos := fmt.ctprintf("assets/cards/card_chaos_stage_%d.png", s)
-        path_light := fmt.ctprintf("assets/cards/card_light_stage_%d.png", s)
-
-        evo_textures.fire[s]  = load_card_texture(path_fire)
-        evo_textures.water[s] = load_card_texture(path_water)
-        evo_textures.earth[s] = load_card_texture(path_earth)
-        evo_textures.chaos[s] = load_card_texture(path_chaos)
-        evo_textures.light[s] = load_card_texture(path_light)
+        evo_textures.fire[s]  = load_stage_texture("fire", s)
+        evo_textures.water[s] = load_stage_texture("water", s)
+        evo_textures.earth[s] = load_stage_texture("earth", s)
+        evo_textures.chaos[s] = load_stage_texture("chaos", s)
+        evo_textures.light[s] = load_stage_texture("light", s)
     }
 
     card_textures.loaded = (card_textures.fire.id > 0 || card_textures.water.id > 0)
