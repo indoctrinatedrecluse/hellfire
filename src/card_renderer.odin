@@ -16,28 +16,52 @@ Card_Texture_Set :: struct {
 
 card_textures: Card_Texture_Set
 
+load_card_texture :: proc(filename: cstring) -> rl.Texture2D {
+    // Try directly from working directory
+    if rl.FileExists(filename) {
+        tex := rl.LoadTexture(filename)
+        if tex.id > 0 {
+            rl.SetTextureFilter(tex, .BILINEAR)
+            return tex
+        }
+    }
+
+    // Try relative to parent (if running from bin/)
+    parent_path := fmt.ctprintf("../%s", filename)
+    if rl.FileExists(parent_path) {
+        tex := rl.LoadTexture(parent_path)
+        if tex.id > 0 {
+            rl.SetTextureFilter(tex, .BILINEAR)
+            return tex
+        }
+    }
+
+    // Try inside bin/ directory
+    bin_path := fmt.ctprintf("bin/%s", filename)
+    if rl.FileExists(bin_path) {
+        tex := rl.LoadTexture(bin_path)
+        if tex.id > 0 {
+            rl.SetTextureFilter(tex, .BILINEAR)
+            return tex
+        }
+    }
+
+    return rl.Texture2D{}
+}
+
 init_card_textures :: proc() {
-    // Attempt loading textures from assets/cards/
-    tex_fire  := rl.LoadTexture("assets/cards/card_fire.jpg")
-    tex_water := rl.LoadTexture("assets/cards/card_water.jpg")
-    tex_earth := rl.LoadTexture("assets/cards/card_earth.jpg")
-    tex_chaos := rl.LoadTexture("assets/cards/card_chaos.jpg")
-    tex_light := rl.LoadTexture("assets/cards/card_light.jpg")
+    card_textures.fire  = load_card_texture("assets/cards/card_fire.png")
+    card_textures.water = load_card_texture("assets/cards/card_water.png")
+    card_textures.earth = load_card_texture("assets/cards/card_earth.png")
+    card_textures.chaos = load_card_texture("assets/cards/card_chaos.png")
+    card_textures.light = load_card_texture("assets/cards/card_light.png")
 
-    card_textures.fire  = tex_fire
-    card_textures.water = tex_water
-    card_textures.earth = tex_earth
-    card_textures.chaos = tex_chaos
-    card_textures.light = tex_light
-
-    // Enable bilinear texture filtering for smooth 2.5D scaling
-    if tex_fire.id > 0  do rl.SetTextureFilter(tex_fire, .BILINEAR)
-    if tex_water.id > 0 do rl.SetTextureFilter(tex_water, .BILINEAR)
-    if tex_earth.id > 0 do rl.SetTextureFilter(tex_earth, .BILINEAR)
-    if tex_chaos.id > 0 do rl.SetTextureFilter(tex_chaos, .BILINEAR)
-    if tex_light.id > 0 do rl.SetTextureFilter(tex_light, .BILINEAR)
-
-    card_textures.loaded = (tex_fire.id > 0 || tex_water.id > 0)
+    card_textures.loaded = (card_textures.fire.id > 0 || card_textures.water.id > 0)
+    if card_textures.loaded {
+        fmt.println("[Hellfire] Creature card textures loaded successfully into VRAM!")
+    } else {
+        fmt.println("[Hellfire] Notice: Running with procedural card art fallback.")
+    }
 }
 
 unload_card_textures :: proc() {
