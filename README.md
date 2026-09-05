@@ -115,6 +115,50 @@ To compile and launch immediately:
 odin build src -out:bin\hellfire.exe -debug
 ```
 
+### Local Android Build (Emulator & Android Studio)
+
+You can build and test Hellfire on an Android device or Android Studio Emulator locally.
+
+#### Prerequisites
+1. **Android Studio** (or Android SDK with `cmdline-tools` and `platform-tools`).
+2. **Android NDK**:
+   - In Android Studio: **Tools &rarr; SDK Manager &rarr; SDK Tools tab &rarr; check "NDK (Side by side)" &rarr; Apply**.
+   - Or install via command line:
+     ```powershell
+     & "$env:ANDROID_HOME\cmdline-tools\latest\bin\sdkmanager.bat" --install "ndk;26.1.10909125"
+     ```
+3. **CMake** (installed via Android Studio SDK Tools or on your system `PATH`).
+4. **Odin Compiler** (already installed).
+
+#### Method 1: Automated Command Line Build (`build_android.bat`)
+Run the automated build script:
+```powershell
+.\build_android.bat
+```
+This script automatically:
+- Detects your Android SDK, NDK, and Java paths.
+- Cross-compiles Raylib for Android ARM64 on the first run.
+- Compiles the game's shared library (`libhellfire.so`) with Odin.
+- Synchronizes all 75 card textures into `android/app/src/main/assets/`.
+- Assembles the debug APK: `android/app/build/outputs/apk/debug/app-debug.apk`.
+
+To build, install, and automatically launch on a running Android Emulator or USB-connected phone:
+```powershell
+.\build_android.bat run
+```
+
+To compile native binaries and assets without running Gradle (ready for Android Studio):
+```powershell
+.\build_android.bat native-only
+```
+
+#### Method 2: Android Studio GUI & Emulator
+1. Run `.\build_android.bat native-only` once to prepare `libhellfire.so` and assets.
+2. Launch **Android Studio**.
+3. Select **File &rarr; Open** and select the `android/` directory (`d:\Projects\hellfire\android`).
+4. Select your virtual device from the device manager dropdown (e.g. **Pixel 8 / Android 14+**).
+5. Click the green **Run ▶** button (or press `Shift + F10`). Android Studio will package the APK, install it into the emulator, and launch the game.
+
 ### Automated Releases (GitHub Actions)
 Releases for **Windows (`.zip`)** and **Android (`.apk`)** are automatically built, packaged, and published via GitHub Actions whenever a version tag is pushed:
 

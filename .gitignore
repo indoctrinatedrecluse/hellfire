@@ -19,5 +19,7 @@ android/**/build/
 android/.gradle/
 android/app/src/main/jniLibs/
 android/app/src/main/assets/
+android/local.properties
+local.properties
 *.so
 
