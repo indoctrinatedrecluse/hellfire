@@ -219,13 +219,14 @@ update_evolution_menu :: proc(dt: f32, mouse_pos: [2]f32, mouse_pressed: bool) {
         }
     }
 
-    // 3. Card Clicks for Full-Screen Inspection Zoom
-    card_w : f32 = 324.0
-    card_h : f32 = 440.0
-    left_card_rect := rl.Rectangle{22.0, 246.0, card_w, card_h}
-    right_card_rect := rl.Rectangle{374.0, 246.0, card_w, card_h}
+    // 3. Card Clicks for Full-Screen Inspection Zoom (Tall 326x540 Cards)
+    card_w : f32 = 326.0
+    card_h : f32 = 540.0
+    card_y : f32 = 240.0
+    left_card_rect := rl.Rectangle{22.0, card_y, card_w, card_h}
+    right_card_rect := rl.Rectangle{372.0, card_y, card_w, card_h}
     if cur_stage >= MAX_EVO_STAGES - 1 {
-        left_card_rect = rl.Rectangle{140.0, 236.0, 440.0, 580.0}
+        left_card_rect = rl.Rectangle{140.0, card_y - 10.0, 440.0, 580.0}
     }
 
     if mouse_pressed && evo_menu.anim_phase == .IDLE {
@@ -241,8 +242,8 @@ update_evolution_menu :: proc(dt: f32, mouse_pos: [2]f32, mouse_pressed: bool) {
         }
     }
 
-    // 4. EVOLVE Button Click (Y: 935)
-    btn_evolve_rect := rl.Rectangle{150.0, 935.0, 420.0, 64.0}
+    // 4. EVOLVE Button Click (Y: 965)
+    btn_evolve_rect := rl.Rectangle{120.0, 965.0, 480.0, 64.0}
     if cur_stage < MAX_EVO_STAGES - 1 && evo_menu.anim_phase == .IDLE {
         if mouse_pressed && rl.CheckCollisionPointRec(mouse_pos, btn_evolve_rect) {
             start_card_ascension(elem, cur_stage)
@@ -250,8 +251,8 @@ update_evolution_menu :: proc(dt: f32, mouse_pos: [2]f32, mouse_pressed: bool) {
         }
     }
 
-    // 5. RESET Button Click (Y: 1018)
-    btn_reset_rect := rl.Rectangle{210.0, 1018.0, 300.0, 42.0}
+    // 5. RESET Button Click (Y: 1045)
+    btn_reset_rect := rl.Rectangle{200.0, 1045.0, 320.0, 44.0}
     if cur_stage > 0 && evo_menu.anim_phase == .IDLE {
         if mouse_pressed && rl.CheckCollisionPointRec(mouse_pos, btn_reset_rect) {
             game.card_stages[elem_idx] = 0
@@ -261,8 +262,8 @@ update_evolution_menu :: proc(dt: f32, mouse_pos: [2]f32, mouse_pressed: bool) {
         }
     }
 
-    // 6. RETURN TO DUNGEON Button Click (Y: 1080)
-    btn_back_rect := rl.Rectangle{190.0, 1080.0, 340.0, 52.0}
+    // 6. RETURN TO DUNGEON Button Click (Y: 1105)
+    btn_back_rect := rl.Rectangle{160.0, 1105.0, 400.0, 52.0}
     if mouse_pressed && rl.CheckCollisionPointRec(mouse_pos, btn_back_rect) {
         game.state = .BATTLE_AIMING
         return
@@ -426,7 +427,7 @@ draw_evolution_menu :: proc(time: f32) {
     }
 
     // --- Progression Stepper Bar ---
-    stepper_y : f32 = banner_y + 34.0
+    stepper_y : f32 = (evo_menu.category == .BASIC) ? 172.0 : 192.0
     stepper_w : f32 = 480.0
     stepper_x : f32 = (f32(VIRTUAL_WIDTH) - stepper_w) * 0.5
 
@@ -437,7 +438,7 @@ draw_evolution_menu :: proc(time: f32) {
         is_reached := (s <= cur_stage)
         is_active  := (s == cur_stage)
 
-        node_r : f32 = is_active ? 15.0 : 11.0
+        node_r : f32 = is_active ? 13.0 : 10.0
         node_col := is_reached ? elem_col1 : rl.DARKGRAY
         if is_active do node_col = rl.GOLD
 
@@ -445,20 +446,19 @@ draw_evolution_menu :: proc(time: f32) {
         rl.DrawCircleLinesV([2]f32{sx, stepper_y}, node_r + 2, is_active ? rl.WHITE : current_theme.wall_trim)
 
         roman_str := fmt.tprintf("%d", s + 1)
-        r_cstr := strings.clone_to_cstring(roman_str)
-        defer delete(r_cstr)
-        rw := rl.MeasureText(r_cstr, 13)
-        rl.DrawText(r_cstr, i32(sx) - rw / 2, i32(stepper_y) - 6, 13, is_reached ? rl.WHITE : rl.BLACK)
+        r_cstr := strings.clone_to_cstring(roman_str, context.temp_allocator)
+        rw := rl.MeasureText(r_cstr, 12)
+        rl.DrawText(r_cstr, i32(sx) - rw / 2, i32(stepper_y) - 5, 12, is_reached ? rl.WHITE : rl.BLACK)
     }
 
-    // --- High-Visibility Cards Showcase (Huge 324x440 cards!) ---
-    card_start_y : f32 = stepper_y + 20.0
+    // --- High-Visibility Cards Showcase (Tall 326x540 Cards with On-Card Descriptions!) ---
+    card_start_y : f32 = 236.0
 
     if cur_stage < MAX_EVO_STAGES - 1 {
         next_data := get_card_stage_data(elem, cur_stage + 1)
 
-        card_w : f32 = 324.0
-        card_h : f32 = 440.0
+        card_w : f32 = 326.0
+        card_h : f32 = 540.0
 
         hover_y := math.sin(time * 3.5) * 4.0
 
@@ -477,10 +477,13 @@ draw_evolution_menu :: proc(time: f32) {
             is_monster = false,
             time       = time,
             stage      = cur_stage,
+            desc       = cur_data.description,
+            epithet    = cur_data.epithet,
+            power_mult = cur_data.power_mult,
         )
 
         // 2. Next Evolved Card (Right)
-        right_card_x : f32 = 374.0
+        right_card_x : f32 = 372.0
         rl.DrawText(rl.TextFormat("* PREVIEW: TIER %d *", cur_stage + 2), i32(right_card_x + card_w * 0.5) - 80, i32(card_start_y - 18 + hover_y * 0.5), 15, rl.GOLD)
         draw_card(
             rect       = rl.Rectangle{right_card_x, card_start_y + hover_y, card_w, card_h},
@@ -494,11 +497,14 @@ draw_evolution_menu :: proc(time: f32) {
             is_monster = false,
             time       = time,
             stage      = cur_stage + 1,
+            desc       = next_data.description,
+            epithet    = next_data.epithet,
+            power_mult = next_data.power_mult,
         )
 
         // Middle Arrow & Circle
         mid_x : f32 = f32(VIRTUAL_WIDTH) * 0.5
-        arrow_y : f32 = card_start_y + card_h * 0.5
+        arrow_y : f32 = card_start_y + card_h * 0.44
         arrow_pulse := math.sin(time * 6.0) * 0.2 + 0.8
         rl.DrawCircleV([2]f32{mid_x, arrow_y}, 26.0 * arrow_pulse, rl.Color{elem_col2.r, elem_col2.g, elem_col2.b, 80})
         rl.DrawCircleLinesV([2]f32{mid_x, arrow_y}, 30.0 * arrow_pulse, COLOR_TEXT_GOLD)
@@ -507,68 +513,58 @@ draw_evolution_menu :: proc(time: f32) {
         rl.DrawText(arrow_text, i32(mid_x) - aw / 2, i32(arrow_y) - 12, 24, COLOR_TEXT_GOLD)
 
         // Inspection Hint
-        hint_text : cstring : "[Click card to inspect full-screen]"
+        hint_text : cstring : "[Click either card to inspect full-screen]"
         hw := rl.MeasureText(hint_text, 13)
-        rl.DrawText(hint_text, VIRTUAL_WIDTH / 2 - hw / 2, i32(card_start_y + card_h + 6), 13, rl.DARKGRAY)
+        rl.DrawText(hint_text, VIRTUAL_WIDTH / 2 - hw / 2, i32(card_start_y + card_h + 5), 13, rl.GRAY)
 
-        // --- Divine Ascension Codex (Spacious, bold, highly readable!) ---
-        codex_y : f32 = card_start_y + card_h + 24.0
-        codex_rect := rl.Rectangle{22.0, codex_y, f32(VIRTUAL_WIDTH) - 44.0, 190.0}
+        // --- Divine Ascension Codex (Positioned gracefully below tall cards) ---
+        codex_y : f32 = card_start_y + card_h + 22.0
+        codex_rect := rl.Rectangle{22.0, codex_y, f32(VIRTUAL_WIDTH) - 44.0, 150.0}
         rl.DrawRectangleRounded(codex_rect, 0.10, 4, rl.Color{18, 14, 26, 245})
         rl.DrawRectangleRoundedLinesEx(codex_rect, 0.10, 4, 2.0, COLOR_TEXT_GOLD)
 
-        // Row 1: Title & Epithet (Bold 24px Gold)
+        // Row 1: Title & Epithet (Bold 22px Gold)
         title_str := fmt.tprintf("%s  --  %s", strings.to_upper(next_data.name, context.temp_allocator), next_data.epithet)
-        t_cstr := strings.clone_to_cstring(title_str)
-        defer delete(t_cstr)
-        tw_bold := rl.MeasureText(t_cstr, 24)
-        rl.DrawText(t_cstr, VIRTUAL_WIDTH / 2 - tw_bold / 2, i32(codex_y + 14), 24, rl.GOLD)
+        t_cstr := strings.clone_to_cstring(title_str, context.temp_allocator)
+        tw_bold := rl.MeasureText(t_cstr, 22)
+        rl.DrawText(t_cstr, VIRTUAL_WIDTH / 2 - tw_bold / 2, i32(codex_y + 12), 22, rl.GOLD)
 
-        // Row 2: Power Transformation Banner (Bright 20px)
+        // Row 2: Power Transformation Banner (Bright 18px)
         p_str := fmt.tprintf("BASE HIT POWER:  %.0f%%  >>>  %.0f%% DMG  (+%.0f%% BOOST!)", cur_data.power_mult * 100.0, next_data.power_mult * 100.0, (next_data.power_mult - cur_data.power_mult) * 100.0)
-        p_cstr := strings.clone_to_cstring(p_str)
-        defer delete(p_cstr)
-        pw := rl.MeasureText(p_cstr, 20)
-        rl.DrawText(p_cstr, VIRTUAL_WIDTH / 2 - pw / 2, i32(codex_y + 50), 20, rl.WHITE)
+        p_cstr := strings.clone_to_cstring(p_str, context.temp_allocator)
+        pw := rl.MeasureText(p_cstr, 18)
+        rl.DrawText(p_cstr, VIRTUAL_WIDTH / 2 - pw / 2, i32(codex_y + 44), 18, rl.WHITE)
 
-        // Row 3: Lore Description (Crisp 17px)
-        desc_cstr := strings.clone_to_cstring(next_data.description)
-        defer delete(desc_cstr)
-        dw := rl.MeasureText(desc_cstr, 17)
-        rl.DrawText(desc_cstr, VIRTUAL_WIDTH / 2 - dw / 2, i32(codex_y + 86), 17, elem_col2)
-
-        // Row 4: Elemental Synergy & Battle Advantage
+        // Row 3: Elemental Synergy & Battle Advantage
         if is_dual {
             p1, p2 := get_element_parents(elem)
             syn_str := fmt.tprintf("AFFINITY: Combines %s & %s (Super Effective: 1.85x against their targets!)", element_name(p1), element_name(p2))
-            s_cstr := strings.clone_to_cstring(syn_str)
-            defer delete(s_cstr)
-            sw := rl.MeasureText(s_cstr, 16)
-            rl.DrawText(s_cstr, VIRTUAL_WIDTH / 2 - sw / 2, i32(codex_y + 122), 16, rl.RAYWHITE)
+            s_cstr := strings.clone_to_cstring(syn_str, context.temp_allocator)
+            sw := rl.MeasureText(s_cstr, 15)
+            rl.DrawText(s_cstr, VIRTUAL_WIDTH / 2 - sw / 2, i32(codex_y + 76), 15, rl.RAYWHITE)
         } else {
             adv_target := basic_advantage_target(elem)
             adv_str := fmt.tprintf("AFFINITY: %s is Super Effective against %s (1.85x Damage Multiplier)", element_name(elem), adv_target)
-            a_cstr := strings.clone_to_cstring(adv_str)
-            defer delete(a_cstr)
-            aw_adv := rl.MeasureText(a_cstr, 16)
-            rl.DrawText(a_cstr, VIRTUAL_WIDTH / 2 - aw_adv / 2, i32(codex_y + 122), 16, rl.RAYWHITE)
+            a_cstr := strings.clone_to_cstring(adv_str, context.temp_allocator)
+            aw_adv := rl.MeasureText(a_cstr, 15)
+            rl.DrawText(a_cstr, VIRTUAL_WIDTH / 2 - aw_adv / 2, i32(codex_y + 76), 15, rl.RAYWHITE)
         }
 
-        // Row 5: Rarity Progression
-        r_str := fmt.tprintf("RARITY: %d Stars  >>>  %d Stars", cur_data.rarity, next_data.rarity)
-        r_cstr := strings.clone_to_cstring(r_str)
-        defer delete(r_cstr)
-        rw := rl.MeasureText(r_cstr, 16)
-        rl.DrawText(r_cstr, VIRTUAL_WIDTH / 2 - rw / 2, i32(codex_y + 154), 16, rl.GOLD)
+        // Row 4: Rarity Progression & Floor Status
+        is_floor := (elem == game.active_floor_duals[0] || elem == game.active_floor_duals[1])
+        r_str := is_dual ? (is_floor ? fmt.tprintf("RARITY: %d Stars >>> %d Stars  |  * ACTIVE IN DUNGEON DECK *", cur_data.rarity, next_data.rarity) : fmt.tprintf("RARITY: %d Stars >>> %d Stars  |  * DORMANT IN THIS CHAMBER *", cur_data.rarity, next_data.rarity)) : fmt.tprintf("RARITY: %d Stars  >>>  %d Stars  |  PERMANENT PRIME ELEMENT", cur_data.rarity, next_data.rarity)
+        r_cstr := strings.clone_to_cstring(r_str, context.temp_allocator)
+        rw := rl.MeasureText(r_cstr, 15)
+        rl.DrawText(r_cstr, VIRTUAL_WIDTH / 2 - rw / 2, i32(codex_y + 108), 15, rl.GOLD)
 
     } else {
-        // Supreme Goddess Final Form Showcase (Massive 440x580 Card!)
+        // Supreme Goddess Final Form Showcase (Massive 440x570 Card!)
         card_w : f32 = 440.0
-        card_h : f32 = 580.0
+        card_h : f32 = 570.0
         card_x : f32 = (f32(VIRTUAL_WIDTH) - card_w) * 0.5
 
         draw_card(
-            rect       = rl.Rectangle{card_x, card_start_y - 10.0, card_w, card_h},
+            rect       = rl.Rectangle{card_x, card_start_y - 8.0, card_w, card_h},
             elem       = elem,
             name       = cur_data.name,
             rarity     = cur_data.rarity,
@@ -579,6 +575,9 @@ draw_evolution_menu :: proc(time: f32) {
             is_monster = false,
             time       = time,
             stage      = 4,
+            desc       = cur_data.description,
+            epithet    = cur_data.epithet,
+            power_mult = cur_data.power_mult,
         )
 
         hint_text : cstring : "[Click card to inspect full-screen]"
@@ -586,7 +585,7 @@ draw_evolution_menu :: proc(time: f32) {
         rl.DrawText(hint_text, VIRTUAL_WIDTH / 2 - hw / 2, i32(card_start_y + card_h - 2), 13, rl.DARKGRAY)
 
         codex_y : f32 = card_start_y + card_h + 16.0
-        codex_rect := rl.Rectangle{22.0, codex_y, f32(VIRTUAL_WIDTH) - 44.0, 140.0}
+        codex_rect := rl.Rectangle{22.0, codex_y, f32(VIRTUAL_WIDTH) - 44.0, 135.0}
         rl.DrawRectangleRounded(codex_rect, 0.10, 4, rl.Color{24, 18, 34, 250})
         rl.DrawRectangleRoundedLinesEx(codex_rect, 0.10, 4, 2.5, rl.GOLD)
 
@@ -598,17 +597,17 @@ draw_evolution_menu :: proc(time: f32) {
         mtw := rl.MeasureText(m_text, 22)
         rl.DrawText(m_text, VIRTUAL_WIDTH / 2 - mtw / 2, i32(codex_y + 54), 22, rl.WHITE)
 
-        desc_cstr := strings.clone_to_cstring(cur_data.description)
-        defer delete(desc_cstr)
-        dw := rl.MeasureText(desc_cstr, 17)
-        rl.DrawText(desc_cstr, VIRTUAL_WIDTH / 2 - dw / 2, i32(codex_y + 90), 17, elem_col2)
+        m_sub := fmt.tprintf("RARITY: %d STARS  |  TRANSCENDENT ASCENSION", cur_data.rarity)
+        ms_cstr := strings.clone_to_cstring(m_sub, context.temp_allocator)
+        msw := rl.MeasureText(ms_cstr, 16)
+        rl.DrawText(ms_cstr, VIRTUAL_WIDTH / 2 - msw / 2, i32(codex_y + 90), 16, elem_col2)
     }
 
-    // --- Interactive Action Buttons (Using the lower canvas gracefully!) ---
-    // 1. Primary ASCEND Button (Y: 935)
+    // --- Interactive Action Buttons (Fully utilizing the lower canvas!) ---
+    // 1. Primary ASCEND Button (Y: 965)
     if cur_stage < MAX_EVO_STAGES - 1 {
-        btn_y : f32 = 935.0
-        btn_rect := rl.Rectangle{150.0, btn_y, 420.0, 64.0}
+        btn_y : f32 = 965.0
+        btn_rect := rl.Rectangle{120.0, btn_y, 480.0, 64.0}
         pulse := math.sin(time * 6.0) * 0.1 + 0.9
 
         rl.DrawRectangleRounded(btn_rect, 0.2, 4, rl.Color{48, 30, 64, 255})
@@ -619,27 +618,36 @@ draw_evolution_menu :: proc(time: f32) {
         rl.DrawText(evo_label, VIRTUAL_WIDTH / 2 - ev_w / 2, i32(btn_y + 20), 24, rl.GOLD)
     }
 
-    // 2. RESET Button (Y: 1018)
+    // 2. RESET Button (Y: 1045)
     if cur_stage > 0 {
-        rbtn_y : f32 = 1018.0
-        rbtn_rect := rl.Rectangle{210.0, rbtn_y, 300.0, 42.0}
+        rbtn_y : f32 = 1045.0
+        rbtn_rect := rl.Rectangle{200.0, rbtn_y, 320.0, 44.0}
         rl.DrawRectangleRounded(rbtn_rect, 0.2, 4, rl.Color{24, 18, 28, 220})
         rl.DrawRectangleRoundedLinesEx(rbtn_rect, 0.2, 4, 1.2, rl.GRAY)
 
         rst_text : cstring : "[R] RESET TO TIER I"
         rw := rl.MeasureText(rst_text, 16)
-        rl.DrawText(rst_text, VIRTUAL_WIDTH / 2 - rw / 2, i32(rbtn_y + 12), 16, rl.LIGHTGRAY)
+        rl.DrawText(rst_text, VIRTUAL_WIDTH / 2 - rw / 2, i32(rbtn_y + 13), 16, rl.LIGHTGRAY)
     }
 
-    // 3. RETURN TO DUNGEON Button (Y: 1080)
-    back_y : f32 = 1080.0
-    back_rect := rl.Rectangle{190.0, back_y, 340.0, 52.0}
+    // 3. RETURN TO DUNGEON Button (Y: 1105)
+    back_y : f32 = 1105.0
+    back_rect := rl.Rectangle{160.0, back_y, 400.0, 52.0}
     rl.DrawRectangleRounded(back_rect, 0.2, 4, rl.Color{18, 14, 24, 240})
     rl.DrawRectangleRoundedLinesEx(back_rect, 0.2, 4, 2.0, current_theme.wall_trim)
 
     back_text : cstring : "[ESC] RETURN TO DUNGEON"
     bw := rl.MeasureText(back_text, 18)
     rl.DrawText(back_text, VIRTUAL_WIDTH / 2 - bw / 2, i32(back_y + 16), 18, rl.WHITE)
+
+    // 4. Bottom Quick Nav Tips (Y: 1175 - 1240)
+    tip1 : cstring : "[TAB] Switch Category  |  [1-5] Quick Element  |  [6-7] Floor Duals"
+    t1w := rl.MeasureText(tip1, 14)
+    rl.DrawText(tip1, VIRTUAL_WIDTH / 2 - t1w / 2, 1178, 14, rl.DARKGRAY)
+
+    tip2 : cstring : "[Click any card to inspect full-screen in high resolution]"
+    t2w := rl.MeasureText(tip2, 13)
+    rl.DrawText(tip2, VIRTUAL_WIDTH / 2 - t2w / 2, 1204, 13, rl.Color{120, 110, 140, 200})
 
     // --- Dynamic Ascension Animation Sequence Overlay ---
     if evo_menu.anim_phase != .IDLE {
@@ -675,8 +683,7 @@ draw_evolution_menu :: proc(time: f32) {
             pop_tw := rl.MeasureText(top_t, 28)
             rl.DrawText(top_t, VIRTUAL_WIDTH / 2 - pop_tw / 2, 425, 28, rl.GOLD)
 
-            sub_cstr := strings.clone_to_cstring(evo_menu.ascend_banner)
-            defer delete(sub_cstr)
+            sub_cstr := strings.clone_to_cstring(evo_menu.ascend_banner, context.temp_allocator)
             sw := rl.MeasureText(sub_cstr, 24)
             rl.DrawText(sub_cstr, VIRTUAL_WIDTH / 2 - sw / 2, 462, 24, elem_col2)
 
@@ -687,16 +694,16 @@ draw_evolution_menu :: proc(time: f32) {
         }
     }
 
-    // --- Full-Screen Card Inspection Modal (Encompassing most of the screen: 580x780!) ---
+    // --- Full-Screen Card Inspection Modal (Grabs MOST of the screen: 660x980!) ---
     if evo_menu.card_zoom_inspect {
         // Dim background veil
         rl.DrawRectangle(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT, rl.Color{5, 4, 8, 248})
 
         zoom_data := get_card_stage_data(elem, evo_menu.zoom_stage)
-        zoom_w : f32 = 580.0
-        zoom_h : f32 = 780.0
+        zoom_w : f32 = 660.0
+        zoom_h : f32 = 980.0
         zoom_x : f32 = (f32(VIRTUAL_WIDTH) - zoom_w) * 0.5
-        zoom_y : f32 = 45.0
+        zoom_y : f32 = 40.0
 
         draw_card(
             rect       = rl.Rectangle{zoom_x, zoom_y, zoom_w, zoom_h},
@@ -710,47 +717,42 @@ draw_evolution_menu :: proc(time: f32) {
             is_monster = false,
             time       = time,
             stage      = evo_menu.zoom_stage,
+            desc       = zoom_data.description,
+            epithet    = zoom_data.epithet,
+            power_mult = zoom_data.power_mult,
         )
 
-        // Modal Description Box below zoomed card
-        m_box_y : f32 = zoom_y + zoom_h + 20.0
-        m_box_rect := rl.Rectangle{26.0, m_box_y, f32(VIRTUAL_WIDTH) - 52.0, 220.0}
+        // Modal Description & Affinity Box below zoomed card (spanning Y: 1035 to 1240)
+        m_box_y : f32 = zoom_y + zoom_h + 14.0
+        m_box_rect := rl.Rectangle{24.0, m_box_y, f32(VIRTUAL_WIDTH) - 48.0, 195.0}
         rl.DrawRectangleRounded(m_box_rect, 0.12, 4, rl.Color{20, 16, 28, 250})
         rl.DrawRectangleRoundedLinesEx(m_box_rect, 0.12, 4, 2.5, rl.GOLD)
 
-        m_title := fmt.tprintf("%s  --  %s", strings.to_upper(zoom_data.name, context.temp_allocator), zoom_data.epithet)
-        mt_cstr := strings.clone_to_cstring(m_title)
-        defer delete(mt_cstr)
-        mtw := rl.MeasureText(mt_cstr, 24)
-        rl.DrawText(mt_cstr, VIRTUAL_WIDTH / 2 - mtw / 2, i32(m_box_y + 16), 24, rl.GOLD)
-
         m_pwr := rl.TextFormat("TIER %d  |  BASE HIT POWER: %.0f%% DMG  |  %d STARS", evo_menu.zoom_stage + 1, zoom_data.power_mult * 100.0, zoom_data.rarity)
-        mpw := rl.MeasureText(m_pwr, 20)
-        rl.DrawText(m_pwr, VIRTUAL_WIDTH / 2 - mpw / 2, i32(m_box_y + 54), 20, rl.WHITE)
-
-        z_desc_cstr := strings.clone_to_cstring(zoom_data.description)
-        defer delete(z_desc_cstr)
-        zdw := rl.MeasureText(z_desc_cstr, 17)
-        rl.DrawText(z_desc_cstr, VIRTUAL_WIDTH / 2 - zdw / 2, i32(m_box_y + 92), 17, elem_col2)
+        mpw := rl.MeasureText(m_pwr, 22)
+        rl.DrawText(m_pwr, VIRTUAL_WIDTH / 2 - mpw / 2, i32(m_box_y + 18), 22, rl.GOLD)
 
         if is_dual {
             p1, p2 := get_element_parents(elem)
-            syn_str := fmt.tprintf("DUAL SYNERGY: Combines %s & %s (Super Effective: 1.85x Damage)", element_name(p1), element_name(p2))
-            s_cstr := strings.clone_to_cstring(syn_str)
-            defer delete(s_cstr)
-            sw := rl.MeasureText(s_cstr, 16)
-            rl.DrawText(s_cstr, VIRTUAL_WIDTH / 2 - sw / 2, i32(m_box_y + 128), 16, rl.RAYWHITE)
+            syn_str := fmt.tprintf("DUAL COMPOUND: Combines %s & %s (Super Effective: 1.85x Damage)", element_name(p1), element_name(p2))
+            s_cstr := strings.clone_to_cstring(syn_str, context.temp_allocator)
+            sw := rl.MeasureText(s_cstr, 17)
+            rl.DrawText(s_cstr, VIRTUAL_WIDTH / 2 - sw / 2, i32(m_box_y + 56), 17, rl.RAYWHITE)
         } else {
             adv_target := basic_advantage_target(elem)
-            adv_str := fmt.tprintf("AFFINITY: %s is Super Effective against %s (1.85x Damage)", element_name(elem), adv_target)
-            a_cstr := strings.clone_to_cstring(adv_str)
-            defer delete(a_cstr)
-            aw_adv := rl.MeasureText(a_cstr, 16)
-            rl.DrawText(a_cstr, VIRTUAL_WIDTH / 2 - aw_adv / 2, i32(m_box_y + 128), 16, rl.RAYWHITE)
+            adv_str := fmt.tprintf("PRIME AFFINITY: %s is Super Effective against %s (1.85x Damage)", element_name(elem), adv_target)
+            a_cstr := strings.clone_to_cstring(adv_str, context.temp_allocator)
+            aw_adv := rl.MeasureText(a_cstr, 17)
+            rl.DrawText(a_cstr, VIRTUAL_WIDTH / 2 - aw_adv / 2, i32(m_box_y + 56), 17, rl.RAYWHITE)
         }
 
-        dismiss_hint : cstring : "[CLICK ANYWHERE OR PRESS ESC TO CLOSE INSPECTION]"
-        dhw := rl.MeasureText(dismiss_hint, 16)
-        rl.DrawText(dismiss_hint, VIRTUAL_WIDTH / 2 - dhw / 2, i32(m_box_y + 175), 16, rl.GOLD)
+        z_desc_cstr := strings.clone_to_cstring(zoom_data.description, context.temp_allocator)
+        zdw := rl.MeasureText(z_desc_cstr, 16)
+        rl.DrawText(z_desc_cstr, VIRTUAL_WIDTH / 2 - zdw / 2, i32(m_box_y + 92), 16, elem_col2)
+
+        dismiss_pulse := math.sin(time * 5.0) * 0.2 + 0.8
+        dismiss_hint : cstring : "[CLICK ANYWHERE OR PRESS ESC TO RETURN]"
+        dhw := rl.MeasureText(dismiss_hint, 18)
+        rl.DrawText(dismiss_hint, VIRTUAL_WIDTH / 2 - dhw / 2, i32(m_box_y + 145), 18, rl.Color{255, 215, 80, u8(dismiss_pulse * 255.0)})
     }
 }

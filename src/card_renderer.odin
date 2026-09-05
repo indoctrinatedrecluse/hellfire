@@ -141,6 +141,51 @@ get_element_card_texture :: proc(elem: Element, stage: int = 0) -> (rl.Texture2D
 }
 
 // Ornate Hellfire-style Card Rendering Procedure
+// Helper to word-wrap and draw text within a bounding box
+draw_text_wrapped :: proc(text: string, pos_x, pos_y, max_width: i32, font_size: i32, color: rl.Color, max_lines: int = 4) -> i32 {
+    if len(text) == 0 do return 0
+    words := strings.split(text, " ", context.temp_allocator)
+    if len(words) == 0 do return 0
+
+    line := strings.builder_make(context.temp_allocator)
+    defer strings.builder_destroy(&line)
+
+    cur_y := pos_y
+    lines_drawn := 0
+
+    for word in words {
+        test_str := len(strings.to_string(line)) == 0 ? word : fmt.tprintf("%s %s", strings.to_string(line), word)
+        test_cstr := strings.clone_to_cstring(test_str, context.temp_allocator)
+        w := rl.MeasureText(test_cstr, font_size)
+
+        if w > max_width && len(strings.to_string(line)) > 0 {
+            l_cstr := strings.clone_to_cstring(strings.to_string(line), context.temp_allocator)
+            lw := rl.MeasureText(l_cstr, font_size)
+            rl.DrawText(l_cstr, pos_x + (max_width - lw) / 2, cur_y, font_size, color)
+            cur_y += font_size + 3
+            lines_drawn += 1
+            if lines_drawn >= max_lines do return cur_y - pos_y
+
+            strings.builder_reset(&line)
+            strings.write_string(&line, word)
+        } else {
+            if len(strings.to_string(line)) > 0 {
+                strings.write_string(&line, " ")
+            }
+            strings.write_string(&line, word)
+        }
+    }
+
+    if len(strings.to_string(line)) > 0 && lines_drawn < max_lines {
+        l_cstr := strings.clone_to_cstring(strings.to_string(line), context.temp_allocator)
+        lw := rl.MeasureText(l_cstr, font_size)
+        rl.DrawText(l_cstr, pos_x + (max_width - lw) / 2, cur_y, font_size, color)
+        cur_y += font_size + 3
+    }
+    return cur_y - pos_y
+}
+
+// Ornate Hellfire-style Card Rendering Procedure
 draw_card :: proc(
     rect:        rl.Rectangle,
     elem:        Element,
@@ -154,6 +199,9 @@ draw_card :: proc(
     time:        f32,
     tilt_rad:    f32 = 0.0,
     stage:       int = 0,
+    desc:        string = "",
+    epithet:     string = "",
+    power_mult:  f32 = 0.0,
 ) {
     elem_col1 := element_primary_color(elem)
     elem_col2 := element_secondary_color(elem)
@@ -203,9 +251,10 @@ draw_card :: proc(
     rl.DrawRectangleRoundedLinesEx(rect, 0.1, 4, selected ? 3.0 : (2.0 + f32(stage) * 0.4), border_col)
 
     // Inner Artwork Viewport
-    art_margin : f32 = math.max(rect.width * 0.05, 3.0)
-    top_header_h : f32 = math.max(rect.height * 0.10, 15.0)
-    bot_footer_h : f32 = math.max(rect.height * 0.15, 24.0)
+    is_tall := rect.height >= 400.0
+    art_margin : f32 = math.max(rect.width * 0.04, 3.0)
+    top_header_h : f32 = is_tall ? math.clamp(rect.height * 0.075, 28.0, 44.0) : math.max(rect.height * 0.10, 15.0)
+    bot_footer_h : f32 = is_tall ? ((rect.height >= 750.0) ? (rect.height * 0.28) : (rect.height * 0.32)) : math.max(rect.height * 0.15, 24.0)
 
     art_rect := rl.Rectangle{
         rect.x + art_margin,
@@ -296,31 +345,77 @@ draw_card :: proc(
         }
     }
 
-    // Bottom Footer: Name Ribbon
+    // Bottom Footer: Name Ribbon and In-Card Description Box
     ribbon_rect := rl.Rectangle{
         rect.x + 3,
         rect.y + rect.height - bot_footer_h,
         rect.width - 6,
         bot_footer_h - 6,
     }
-    rl.DrawRectangleRec(ribbon_rect, rl.Color{14, 10, 20, 240})
+    rl.DrawRectangleRec(ribbon_rect, rl.Color{14, 10, 20, 245})
     rl.DrawRectangleLinesEx(ribbon_rect, 1.2, border_col)
 
-    // Creature Name with dynamic responsive text scaling
-    if len(name) > 0 {
-        name_cstr := strings.clone_to_cstring(name)
-        defer delete(name_cstr)
+    if is_tall {
+        cur_y := i32(ribbon_rect.y + 6)
 
-        font_size : i32 = i32(math.clamp(rect.width * 0.075, 11.0, 22.0))
-        for font_size > 9 && rl.MeasureText(name_cstr, font_size) > i32(ribbon_rect.width - 8) {
-            font_size -= 1
+        // 1. Creature Name
+        if len(name) > 0 {
+            name_cstr := strings.clone_to_cstring(name, context.temp_allocator)
+            font_size : i32 = i32(math.clamp(rect.width * 0.068, 14.0, 26.0))
+            for font_size > 12 && rl.MeasureText(name_cstr, font_size) > i32(ribbon_rect.width - 12) {
+                font_size -= 1
+            }
+            nw := rl.MeasureText(name_cstr, font_size)
+            nx := i32(ribbon_rect.x + ribbon_rect.width * 0.5) - nw / 2
+            name_color := (stage == 4) ? rl.GOLD : rl.RAYWHITE
+            rl.DrawText(name_cstr, nx, cur_y, font_size, name_color)
+            cur_y += font_size + 3
         }
 
-        nw := rl.MeasureText(name_cstr, font_size)
-        nx := i32(rect.x + rect.width * 0.5) - nw / 2
-        ny := i32(ribbon_rect.y + (ribbon_rect.height - f32(font_size)) * 0.5)
-        name_color := (stage == 4) ? rl.GOLD : rl.RAYWHITE
-        rl.DrawText(name_cstr, nx, ny, font_size, name_color)
+        // 2. Epithet
+        if len(epithet) > 0 {
+            epi_str := fmt.tprintf("* %s *", epithet)
+            epi_cstr := strings.clone_to_cstring(epi_str, context.temp_allocator)
+            epi_font : i32 = i32(math.clamp(rect.width * 0.046, 11.0, 18.0))
+            ew := rl.MeasureText(epi_cstr, epi_font)
+            ex := i32(ribbon_rect.x + ribbon_rect.width * 0.5) - ew / 2
+            rl.DrawText(epi_cstr, ex, cur_y, epi_font, elem_col2)
+            cur_y += epi_font + 4
+        }
+
+        // 3. Power Multiplier Badge
+        if power_mult > 0.0 {
+            p_str := fmt.tprintf("[BASE POWER: %.0f%% DMG]", power_mult * 100.0)
+            p_cstr := strings.clone_to_cstring(p_str, context.temp_allocator)
+            p_font : i32 = i32(math.clamp(rect.width * 0.046, 11.0, 18.0))
+            pw := rl.MeasureText(p_cstr, p_font)
+            px := i32(ribbon_rect.x + ribbon_rect.width * 0.5) - pw / 2
+            rl.DrawText(p_cstr, px, cur_y, p_font, (stage == 4) ? rl.GOLD : rl.WHITE)
+            cur_y += p_font + 5
+        }
+
+        // 4. Card Description (Word-wrapped directly on the card face!)
+        if len(desc) > 0 {
+            desc_font : i32 = (rect.height >= 750.0) ? 17 : 13
+            desc_col := (stage == 4) ? rl.Color{255, 240, 180, 255} : rl.Color{210, 215, 230, 255}
+            draw_text_wrapped(desc, i32(ribbon_rect.x + 8), cur_y, i32(ribbon_rect.width - 16), desc_font, desc_col, 3)
+        }
+    } else {
+        // Creature Name with dynamic responsive text scaling (Compact for battle)
+        if len(name) > 0 {
+            name_cstr := strings.clone_to_cstring(name, context.temp_allocator)
+
+            font_size : i32 = i32(math.clamp(rect.width * 0.075, 11.0, 22.0))
+            for font_size > 9 && rl.MeasureText(name_cstr, font_size) > i32(ribbon_rect.width - 8) {
+                font_size -= 1
+            }
+
+            nw := rl.MeasureText(name_cstr, font_size)
+            nx := i32(rect.x + rect.width * 0.5) - nw / 2
+            ny := i32(ribbon_rect.y + (ribbon_rect.height - f32(font_size)) * 0.5)
+            name_color := (stage == 4) ? rl.GOLD : rl.RAYWHITE
+            rl.DrawText(name_cstr, nx, ny, font_size, name_color)
+        }
     }
 
     // HP Bar at very bottom of card
