@@ -111,9 +111,15 @@ jobs:
           mkdir -p "$ODIN_DIR/vendor/raylib/linux-arm64"
           cp raylib-build/raylib/libraylib.a "$ODIN_DIR/vendor/raylib/linux-arm64/libraylib.a"
           
-          # Create dummy libX11.a in NDK sysroot to satisfy vendor:raylib's -lX11 link argument
+          # Create dummy libX11.a and libpthread.a in NDK sysroot to satisfy -lX11 and -lpthread
           ar cr "$SYSROOT_BASE/libX11.a"
           ar cr "$SYSROOT_BASE/34/libX11.a"
+          ar cr "$SYSROOT_BASE/libpthread.a"
+          ar cr "$SYSROOT_BASE/34/libpthread.a"
+
+          # Remove -lX11 and -lpthread requirements from Odin's vendor:raylib for Android
+          sed -i 's/"system:pthread",//g' "$ODIN_DIR/vendor/raylib/raylib.odin"
+          sed -i 's/"system:X11",//g' "$ODIN_DIR/vendor/raylib/raylib.odin"
 
       - name: Compile Odin Android Shared Library
         run: |
